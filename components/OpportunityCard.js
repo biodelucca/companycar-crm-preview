@@ -1,0 +1,5 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+  const formatoMoeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  export function OpportunityCard({ oportunidade, cliente, onClick }) {
+      return (_jsxs("article", { className: "op-card", onClick: onClick, role: "button", tabIndex: 0, children: [_jsx("strong", { className: "op-card__veiculo", children: oportunidade.veiculoInteresse }), _jsx("p", { className: "op-card__cliente", children: cliente?.nome ?? "Cliente não identificado" }), _jsx("p", { className: "op-card__proxima", children: oportunidade.proximaAcao }), oportunidade.valorProposto && (_jsx("span", { className: "op-card__valor", children: formatoMoeda.format(oportunidade.valorProposto) }))] }));
+}
