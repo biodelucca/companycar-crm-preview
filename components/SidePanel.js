@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { obterAnotacao, salvarAnotacao } from "../services/anotacoes.js";
+import { listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
 const formatoMoeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const formatoDataHora = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
 function formatarDataEvento(iso) {
@@ -12,7 +13,7 @@ function formatarDataEvento(iso) {
         return iso;
     return formatoDataHora.format(data);
 }
-export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], etapas, etapaAtual, motivosPerda = [], origens = [], timelineEventos, checklistItens, checklistFeito, onFechar, onMoverEtapa, onTransferir, onAtualizarProximaAcao, onToggleChecklist, }) {
+export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], etapas, etapaAtual, motivosPerda = [], origens = [], timelineEventos, checklistItens, checklistFeito, onFechar, onMoverEtapa, onTransferir, onAtualizarProximaAcao, onToggleChecklist, onAssociarVeiculoEstoque, }) {
     const [aba, setAba] = useState("detalhes");
     // Sprint 1 — Motivo de perda e Origem agora vêm das listas oficiais
     // (motivosPerda/origens, buscadas do backend real em Pipeline.tsx), não
@@ -134,9 +135,81 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
         })
             .finally(() => setAnotacoesSalvando(false));
     }
+    // Sprint 3 "Integração com Estoque do Simples" (2026-08-03) — busca e
+    // associação de um veículo real do estoque. A lista completa (54 itens
+    // na análise da Etapa 1) é carregada uma vez por abertura do painel —
+    // igual ao padrão de Anotações acima, service isolado e sem cache no
+    // frontend (o cache de 15-30min já existe no Apps Script, ver
+    // Estoque.gs). Serve tanto para a busca quanto para mostrar dado ao vivo
+    // (preço/km/disponibilidade) do veículo já associado, se houver.
+    const [estoqueLista, setEstoqueLista] = useState([]);
+    const [estoqueCarregando, setEstoqueCarregando] = useState(true);
+    const [estoqueErro, setEstoqueErro] = useState(null);
+    const [buscaVeiculoAberta, setBuscaVeiculoAberta] = useState(false);
+    const [termoBuscaVeiculo, setTermoBuscaVeiculo] = useState("");
+    const [associandoId, setAssociandoId] = useState(null);
+    const [erroAssociar, setErroAssociar] = useState(null);
+    useEffect(() => {
+        let cancelado = false;
+        setEstoqueCarregando(true);
+        setEstoqueErro(null);
+        listEstoque()
+            .then((lista) => {
+            if (!cancelado)
+                setEstoqueLista(lista);
+        })
+            .catch(() => {
+            if (!cancelado)
+                setEstoqueErro("Não foi possível consultar o estoque agora.");
+        })
+            .finally(() => {
+            if (!cancelado)
+                setEstoqueCarregando(false);
+        });
+        return () => {
+            cancelado = true;
+        };
+    }, [oportunidade.id]);
+    const veiculoEstoqueAoVivo = oportunidade.veiculoEstoqueId
+        ? estoqueLista.find((v) => v.id === oportunidade.veiculoEstoqueId)
+        : undefined;
+    // Só decide "indisponível" depois que a consulta terminou com sucesso —
+    // enquanto carrega, não afirma nada sobre disponibilidade ainda.
+    const veiculoEstoqueIndisponivel = !!oportunidade.veiculoEstoqueId && !estoqueCarregando && !estoqueErro && !veiculoEstoqueAoVivo;
+    const resultadosBusca = buscaVeiculoAberta ? buscarVeiculosEstoque(estoqueLista, termoBuscaVeiculo).slice(0, 25) : [];
+    async function handleAssociarVeiculo(veiculoEstoqueId) {
+        setAssociandoId(veiculoEstoqueId);
+        setErroAssociar(null);
+        const resultado = await onAssociarVeiculoEstoque(veiculoEstoqueId);
+        setAssociandoId(null);
+        if (resultado.ok === false) {
+            setErroAssociar(resultado.erro ?? "Não foi possível associar este veículo agora.");
+            return;
+        }
+        setBuscaVeiculoAberta(false);
+        setTermoBuscaVeiculo("");
+    }
     return (_jsx("div", { className: "side-panel__overlay", onClick: onFechar, children: _jsxs("aside", { className: "side-panel", onClick: (e) => e.stopPropagation(), children: [_jsxs("div", { className: "side-panel__header", children: [_jsxs("div", { children: [_jsx("h2", { children: oportunidade.veiculoInteresse }), _jsx("p", { className: "side-panel__cliente", children: cliente?.nome ?? "Cliente não identificado" })] }), _jsx("button", { className: "side-panel__fechar", onClick: onFechar, "aria-label": "Fechar", children: "\u2715" })] }), _jsxs("div", { className: "side-panel__tabs", children: [_jsx("button", { className: aba === "detalhes" ? "ativo" : "", onClick: () => setAba("detalhes"), children: "Detalhes" }), _jsx("button", { className: aba === "timeline" ? "ativo" : "", onClick: () => setAba("timeline"), children: "Timeline" }), _jsx("button", { className: aba === "checklist" ? "ativo" : "", onClick: () => setAba("checklist"), children: "Checklist" })] }), _jsxs("div", { className: "side-panel__body", children: [aba === "detalhes" && (_jsxs(_Fragment, { children: [_jsxs("dl", { className: "side-panel__lista", children: [_jsx("dt", { children: "Etapa" }), _jsx("dd", { children: etapaAtual?.nome ?? "—" }), _jsx("dt", { children: "Respons\u00E1vel" }), _jsx("dd", { children: responsavel?.nome ?? "—" }), _jsx("dt", { children: "Origem" }), _jsx("dd", { children: origemObj?.nome ?? "—" }), _jsx("dt", { children: "Telefone" }), _jsx("dd", { children: cliente?.telefone ?? "—" }), _jsx("dt", { children: "Cidade" }), _jsx("dd", { children: cliente?.cidade ?? "—" }), _jsx("dt", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsxs("dd", { children: [oportunidade.proximaAcao, oportunidade.proximaAcaoData ? ` (${oportunidade.proximaAcaoData})` : ""] }), oportunidade.condicaoComercial && (_jsxs(_Fragment, { children: [_jsx("dt", { children: "Condi\u00E7\u00E3o comercial" }), _jsx("dd", { children: oportunidade.condicaoComercial })] })), oportunidade.valorProposto && (_jsxs(_Fragment, { children: [_jsx("dt", { children: "Valor proposto" }), _jsx("dd", { children: formatoMoeda.format(oportunidade.valorProposto) })] })), oportunidade.veiculoTroca && (_jsxs(_Fragment, { children: [_jsx("dt", { children: "Ve\u00EDculo na troca" }), _jsxs("dd", { children: [oportunidade.veiculoTroca.modelo, " \u00B7 ", oportunidade.veiculoTroca.ano, " \u00B7", " ", oportunidade.veiculoTroca.km.toLocaleString("pt-BR"), " km"] })] })), !oportunidade.veiculoTroca && oportunidade.veiculoTrocaDescricao && (_jsxs(_Fragment, { children: [_jsx("dt", { children: "Ve\u00EDculo na troca" }), _jsx("dd", { children: oportunidade.veiculoTrocaDescricao })] })), motivoPerdaObj && (_jsxs(_Fragment, { children: [_jsx("dt", { children: "Motivo da perda" }), _jsxs("dd", { children: [motivoPerdaObj.nome, motivoPerdaObj.nome === "Outro" && oportunidade.motivoPerdaDescricaoOutro
                                                             ? ` — ${oportunidade.motivoPerdaDescricaoOutro}`
-                                                            : ""] })] }))] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Anota\u00E7\u00F5es" }), anotacoesCarregando ? (_jsx("p", { className: "side-panel__vazio-aba", children: "Carregando anota\u00E7\u00F5es\u2026" })) : (_jsxs("div", { className: "side-panel__form", children: [_jsx("textarea", { className: "side-panel__anotacoes-textarea", value: anotacoesTexto, onChange: (e) => {
+                                                            : ""] })] }))] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Ve\u00EDculo do estoque" }), oportunidade.veiculoEstoqueId && (_jsxs("div", { className: "side-panel__veiculo-estoque", children: [veiculoEstoqueIndisponivel && (_jsx("p", { className: "side-panel__aviso", children: "Indispon\u00EDvel no estoque \u2014 dados abaixo s\u00E3o os \u00FAltimos conhecidos." })), (() => {
+                                                    // Ao vivo (encontrado em listEstoque) tem prioridade;
+                                                    // senão cai no snapshot congelado gravado na
+                                                    // associação (nunca apaga, nunca substitui sozinho —
+                                                    // decisão do CEO).
+                                                    const marca = veiculoEstoqueAoVivo?.marca ?? oportunidade.veiculoEstoqueMarca;
+                                                    const modeloVersao = veiculoEstoqueAoVivo?.modeloVersao ?? oportunidade.veiculoEstoqueModeloVersao;
+                                                    const ano = veiculoEstoqueAoVivo?.ano ?? oportunidade.veiculoEstoqueAno;
+                                                    const km = veiculoEstoqueAoVivo ? veiculoEstoqueAoVivo.km : oportunidade.veiculoEstoqueKm ?? null;
+                                                    const preco = veiculoEstoqueAoVivo
+                                                        ? veiculoEstoqueAoVivo.preco
+                                                        : oportunidade.veiculoEstoquePreco ?? null;
+                                                    const imagem = veiculoEstoqueAoVivo?.imagemPrincipal ?? oportunidade.veiculoEstoqueImagem;
+                                                    return (_jsxs(_Fragment, { children: [imagem && (_jsx("img", { className: "side-panel__veiculo-estoque-imagem", src: imagem, alt: modeloVersao ?? "Veículo" })), _jsxs("dl", { className: "side-panel__lista", children: [_jsx("dt", { children: "Ve\u00EDculo" }), _jsx("dd", { children: [marca, modeloVersao, ano].filter(Boolean).join(" ") || "—" }), _jsx("dt", { children: "Km" }), _jsx("dd", { children: km !== null && km !== undefined ? `${km.toLocaleString("pt-BR")} km` : "—" }), _jsx("dt", { children: "Pre\u00E7o" }), _jsx("dd", { children: preco ? formatoMoeda.format(preco) : "Sem preço informado" })] })] }));
+                                                })()] })), estoqueErro && _jsx("p", { className: "side-panel__aviso", children: estoqueErro }), !buscaVeiculoAberta ? (_jsx("button", { className: "side-panel__botao-secundario", onClick: () => setBuscaVeiculoAberta(true), children: oportunidade.veiculoEstoqueId ? "Trocar veículo do estoque" : "Associar veículo do estoque" })) : (_jsxs("div", { className: "side-panel__form", children: [_jsx("input", { type: "text", placeholder: "Buscar por marca, modelo/vers\u00E3o ou ano\u2026", value: termoBuscaVeiculo, onChange: (e) => setTermoBuscaVeiculo(e.target.value), autoFocus: true }), estoqueCarregando && _jsx("p", { className: "side-panel__vazio-aba", children: "Carregando estoque\u2026" }), !estoqueCarregando && !estoqueErro && (_jsxs("ul", { className: "side-panel__estoque-resultados", children: [resultadosBusca.length === 0 && (_jsx("li", { className: "side-panel__vazio-aba", children: "Nenhum ve\u00EDculo encontrado." })), resultadosBusca.map((v) => (_jsxs("li", { className: "side-panel__estoque-item", children: [v.imagemPrincipal && _jsx("img", { src: v.imagemPrincipal, alt: v.modeloVersao ?? "Veículo" }), _jsxs("div", { className: "side-panel__estoque-item-info", children: [_jsx("strong", { children: [v.marca, v.modeloVersao, v.ano].filter(Boolean).join(" ") }), _jsxs("span", { children: [v.km !== null ? `${v.km.toLocaleString("pt-BR")} km` : "km —", " \u00B7", " ", v.preco ? formatoMoeda.format(v.preco) : "Sem preço informado"] })] }), _jsx("button", { className: "side-panel__botao-primario", onClick: () => handleAssociarVeiculo(v.id), disabled: associandoId !== null, children: associandoId === v.id ? "Associando…" : "Associar" })] }, v.id)))] })), erroAssociar && _jsx("p", { className: "side-panel__aviso", children: erroAssociar }), _jsx("div", { className: "side-panel__form-acoes", children: _jsx("button", { className: "side-panel__botao-secundario", onClick: () => {
+                                                            setBuscaVeiculoAberta(false);
+                                                            setTermoBuscaVeiculo("");
+                                                            setErroAssociar(null);
+                                                        }, children: "Cancelar" }) })] }))] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Anota\u00E7\u00F5es" }), anotacoesCarregando ? (_jsx("p", { className: "side-panel__vazio-aba", children: "Carregando anota\u00E7\u00F5es\u2026" })) : (_jsxs("div", { className: "side-panel__form", children: [_jsx("textarea", { className: "side-panel__anotacoes-textarea", value: anotacoesTexto, onChange: (e) => {
                                                         setAnotacoesTexto(e.target.value);
                                                         setAnotacoesSalvoAgora(false);
                                                     }, placeholder: "Observa\u00E7\u00F5es internas sobre esta oportunidade\u2026", rows: 4 }), anotacoesErro && _jsx("p", { className: "side-panel__aviso", children: anotacoesErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: handleSalvarAnotacoes, disabled: anotacoesSalvando || anotacoesTexto === anotacoesSalvo, children: anotacoesSalvando ? "Salvando…" : "Salvar" }), anotacoesSalvoAgora && !anotacoesSalvando && (_jsx("span", { className: "side-panel__anotacoes-status", children: "Salvo" }))] })] }))] }), _jsx("div", { className: "side-panel__secao", children: !editandoProximaAcao ? (_jsx("button", { className: "side-panel__botao-secundario", onClick: iniciarEdicaoProximaAcao, children: "Editar pr\u00F3xima a\u00E7\u00E3o" })) : (_jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: textoProximaAcao, onChange: (e) => setTextoProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data" }), _jsx("input", { type: "date", value: dataProximaAcao, onChange: (e) => setDataProximaAcao(e.target.value) })] }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: salvarProximaAcao, children: "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: () => setEditandoProximaAcao(false), children: "Cancelar" })] })] })) }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Mover para outra etapa" }), etapaEhFinal ? (_jsxs("p", { className: "side-panel__aviso", children: ["Etapa final (", etapaAtual?.nome, ") \u2014 n\u00E3o pode ser alterada."] })) : (_jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: etapaAlvo, onChange: (e) => {
