@@ -514,7 +514,8 @@ button {
 
 .side-panel__form select,
 .side-panel__form input[type="text"],
-.side-panel__form input[type="date"] {
+.side-panel__form input[type="date"],
+.side-panel__form textarea {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--cor-borda);
@@ -523,6 +524,18 @@ button {
   font-family: inherit;
   background: #fff;
   color: var(--cor-texto);
+}
+
+.side-panel__form textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.4;
+}
+
+.side-panel__anotacoes-status {
+  align-self: center;
+  font-size: 12.5px;
+  color: var(--cor-texto-suave);
 }
 
 .side-panel__campo {
@@ -639,7 +652,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + mover etapa, timeline, pr&oacute;xima a&ccedil;&atilde;o e checklist</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + mover etapa, timeline, pr&oacute;xima a&ccedil;&atilde;o, checklist e anota&ccedil;&otilde;es (Sheets)</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
