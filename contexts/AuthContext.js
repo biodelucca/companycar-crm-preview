@@ -23,7 +23,7 @@ import { encerrarSessao } from "../services/auth.js";
 // antes da autenticação real existir — decisão dentro da autonomia técnica
 // concedida pelo CEO (não muda regra de negócio, não aumenta complexidade,
 // acelera a entrega). Aprovada pelo CPO na revisão do Passo 3.
-const USE_MOCK = "true" === "true";
+const USE_MOCK = "false" === "true";
 // Sprint 1 "Operação Comercial" (2026-08-03): a aba Usuarios da planilha
 // real agora tem 6 usuários com id numérico (1-6, ver seed em
 // claude/cto-diretriz-tecnica-crm-mvp-2026-08.md) — os antigos
