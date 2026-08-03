@@ -219,6 +219,149 @@ button {
   background: var(--cor-primaria-escura);
 }
 
+/* ---------- Dashboard: filtros (Sprint 2) ---------- */
+/* Estrutura mínima pedida pelo CEO — período/responsável/origem, sem UI
+   avançada (datepicker custom etc). Mesmo visual de campo já usado em
+   .side-panel__form, repetido aqui para não acoplar o Dashboard ao
+   SidePanel só por causa de CSS. */
+
+.dashboard__filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.dashboard__filtros label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__filtros select {
+  padding: 8px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--cor-texto);
+  min-width: 180px;
+}
+
+/* ---------- Dashboard: indicadores (Sprint 2) ---------- */
+
+.dashboard__secao {
+  background: #fff;
+  border: 1px solid var(--cor-borda);
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: var(--sombra-card);
+  margin-bottom: 20px;
+}
+
+.dashboard__secao-titulo {
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__grade-indicadores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+
+.dashboard__grade-indicadores .dashboard__secao {
+  margin-bottom: 0;
+}
+
+.dashboard__vazio {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__lista-contagem {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dashboard__lista-contagem li {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(60px, 2fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.dashboard__lista-contagem-rotulo {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard__lista-contagem-barra {
+  display: block;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--cor-fundo);
+  overflow: hidden;
+}
+
+.dashboard__lista-contagem-barra-preenchida {
+  display: block;
+  height: 100%;
+  background: var(--cor-primaria);
+}
+
+.dashboard__lista-contagem-valor {
+  font-weight: 700;
+  text-align: right;
+  min-width: 20px;
+}
+
+.dashboard__lista-acoes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dashboard__lista-acoes li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.dashboard__lista-acoes li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.dashboard__lista-acoes-principal {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.dashboard__lista-acoes-detalhe {
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
 /* ---------- Pipeline ---------- */
 
 .pipeline-loading {
@@ -683,6 +826,20 @@ button {
     padding: 16px;
   }
 
+  .dashboard__filtros {
+    flex-direction: column;
+  }
+
+  .dashboard__filtros select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .dashboard__lista-contagem li {
+    grid-template-columns: minmax(70px, 1fr) minmax(40px, 1.4fr) auto;
+    font-size: 12.5px;
+  }
+
   .pipeline__board {
     scroll-snap-type: x mandatory;
   }
@@ -710,7 +867,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + Sprint 1 Opera&ccedil;&atilde;o Comercial: transfer&ecirc;ncia, drag-and-drop, motivos/origens oficiais e timeline (Sheets)</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + Sprint 2 Dashboard Gerencial: indicadores reais da opera&ccedil;&atilde;o (Sheets)</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
