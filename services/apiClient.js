@@ -9,96 +9,95 @@
 const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwsc0KKZ1927lCcNJ5axL6irXfh1cvYwS2JpB0wn9wjsu7XmGi02KmwUwuKKVZ8Wdew/exec";
 function esperar(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+// Descoberto em produção (2026-08-02, verificação pós-publicação do Passo 3):
+// o Web App do Apps Script, sob chamadas concorrentes (o Dashboard/Pipeline
+// disparam várias ações em paralelo via Promise.all), responde de forma
+// intermitente com HTTP 404 ou uma página HTML de erro em vez do JSON
+// esperado — reprodutível em recarregamentos consecutivos da página
+// publicada. Não é um erro do código desta aplicação nem um problema de
+// CORS/autorização (o mesmo endpoint responde corretamente na maioria das
+// chamadas); é uma instabilidade do lado do Apps Script sob concorrência,
+// então a mitigação apropriada é reintentar aqui, na camada de transporte —
+// nenhum service de entidade nem componente precisa saber disso.
+const MAX_TENTATIVAS = 3;
+const ATRASO_BASE_MS = 400;
+// Erro "de transporte" (rede, HTTP não-OK, corpo não-JSON) — indica a
+// instabilidade intermitente do Apps Script descrita acima, vale reintentar.
+// Diferente de um erro "de negócio" (json.success === false — ex: token
+// inválido/expirado, ação desconhecida), que reintentar não resolve e só
+// atrasa o erro real chegando à tela — esse tipo propaga na primeira vez.
+class ErroTransporte extends Error {
+}
+// Revisão do CPO (2026-08-02): retry aprovado para o MVP, mas com registro
+// dos erros para não esconder falhas recorrentes — cada tentativa e a
+// falha final (se todas as tentativas se esgotarem) vão para o console.
+function registrarFalha(action, tentativa, erro, ultima) {
+    const mensagem = erro instanceof Error ? erro.message : String(erro);
+    if (ultima) {
+        console.error(`[apiClient] "${action}" falhou após ${tentativa} tentativa(s): ${mensagem}`);
     }
-    // Descoberto em produção (2026-08-02, verificação pós-publicação do Passo 3):
-    // o Web App do Apps Script, sob chamadas concorrentes (o Dashboard/Pipeline
-    // disparam várias ações em paralelo via Promise.all), responde de forma
-    // intermitente com HTTP 404 ou uma página HTML de erro em vez do JSON
-    // esperado — reprodutível em recarregamentos consecutivos da página
-    // publicada. Não é um erro do código desta aplicação nem um problema de
-    // CORS/autorização (o mesmo endpoint responde corretamente na maioria das
-    // chamadas); é uma instabilidade do lado do Apps Script sob concorrência,
-    // então a mitigação apropriada é reintentar aqui, na camada de transporte —
-    // nenhum service de entidade nem componente precisa saber disso.
-    const MAX_TENTATIVAS = 3;
-    const ATRASO_BASE_MS = 400;
-    // Erro "de transporte" (rede, HTTP não-OK, corpo não-JSON) — indica a
-    // instabilidade intermitente do Apps Script descrita acima, vale reintentar.
-    // Diferente de um erro "de negócio" (json.success === false — ex: token
-    // inválido/expirado, ação desconhecida), que reintentar não resolve e só
-    // atrasa o erro real chegando à tela — esse tipo propaga na primeira vez.
-    class ErroTransporte extends Error {
+    else {
+        console.warn(`[apiClient] "${action}" falhou na tentativa ${tentativa}/${MAX_TENTATIVAS}, reintentando: ${mensagem}`);
     }
-    // Revisão do CPO (2026-08-02): retry aprovado para o MVP, mas com registro
-    // dos erros para não esconder falhas recorrentes — cada tentativa e a
-    // falha final (se todas as tentativas se esgotarem) vão para o console.
-    function registrarFalha(action, tentativa, erro, ultima) {
-        const mensagem = erro instanceof Error ? erro.message : String(erro);
-            if (ultima) {
-                    console.error(`[apiClient] "${action}" falhou após ${tentativa} tentativa(s): ${mensagem}`);
-                        }
-                            else {
-                                    console.warn(`[apiClient] "${action}" falhou na tentativa ${tentativa}/${MAX_TENTATIVAS}, reintentando: ${mensagem}`);
-                                        }
-                                        }
-                                        async function request({ action, params, body, idToken }) {
-                                            const url = new URL(APPS_SCRIPT_URL);
-                                                url.searchParams.set("action", action);
-                                                    if (params) {
-                                                            for (const [key, value] of Object.entries(params)) {
-                                                                        url.searchParams.set(key, value);
-                                                                                }
-                                                                                    }
-                                                                                        // Requisições GET não têm corpo — o token de sessão precisa ir na query
-                                                                                            // string para o backend enxergá-lo (ver comentário no campo idToken acima).
-                                                                                                if (idToken && !body) {
-                                                                                                        url.searchParams.set("sessionToken", idToken);
-                                                                                                            }
-                                                                                                                let ultimoErro;
-                                                                                                                    for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
-                                                                                                                            try {
-                                                                                                                                        const response = await fetch(url.toString(), {
-                                                                                                                                                        method: body ? "POST" : "GET",
-                                                                                                                                                                        // Apps Script Web Apps têm um comportamento particular de CORS:
-                                                                                                                                                                                        // preferir text/plain no corpo evita o preflight OPTIONS, que o
-                                                                                                                                                                                                        // Apps Script não trata nativamente.
-                                                                                                                                                                                                                        headers: body ? { "Content-Type": "text/plain;charset=utf-8" } : undefined,
-                                                                                                                                                                                                                                        body: body ? JSON.stringify({ ...body, idToken }) : undefined,
-                                                                                                                                                                                                                                                    });
-                                                                                                                                                                                                                                                                if (!response.ok) {
-                                                                                                                                                                                                                                                                                throw new ErroTransporte(`Apps Script respondeu HTTP ${response.status} para a ação "${action}".`);
-                                                                                                                                                                                                                                                                                            }
-                                                                                                                                                                                                                                                                                                        const texto = await response.text();
-                                                                                                                                                                                                                                                                                                                    let json;
-                                                                                                                                                                                                                                                                                                                                try {
-                                                                                                                                                                                                                                                                                                                                                json = JSON.parse(texto);
-                                                                                                                                                                                                                                                                                                                                                            }
-                                                                                                                                                                                                                                                                                                                                                                        catch {
-                                                                                                                                                                                                                                                                                                                                                                                        // Resposta não era JSON (ex: página HTML de erro/quota do Apps
-                                                                                                                                                                                                                                                                                                                                                                                                        // Script) — trata como falha transitória e reintenta.
-                                                                                                                                                                                                                                                                                                                                                                                                                        throw new ErroTransporte(`Resposta inesperada (não-JSON) do Apps Script para a ação "${action}".`);
-                                                                                                                                                                                                                                                                                                                                                                                                                                    }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                if (!json.success) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                // Erro de negócio (ex: token inválido/expirado) — não é
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                // transporte, não reintenta, propaga imediatamente.
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                throw new Error(json.error ?? "Erro desconhecido na API.");
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        return json.data;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        catch (erro) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    ultimoErro = erro;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                const transporte = erro instanceof ErroTransporte;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            const ultimaTentativa = tentativa === MAX_TENTATIVAS;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        registrarFalha(action, tentativa, erro, !transporte || ultimaTentativa);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    if (!transporte) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    throw erro;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            if (!ultimaTentativa) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            await esperar(ATRASO_BASE_MS * tentativa);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        throw ultimoErro instanceof Error ? ultimoErro : new Error("Falha ao comunicar com o Apps Script.");
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        export const apiClient = { request };
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+}
+async function request({ action, params, body, idToken }) {
+    const url = new URL(APPS_SCRIPT_URL);
+    url.searchParams.set("action", action);
+    if (params) {
+        for (const [key, value] of Object.entries(params)) {
+            url.searchParams.set(key, value);
+        }
+    }
+    // Requisições GET não têm corpo — o token de sessão precisa ir na query
+    // string para o backend enxergá-lo (ver comentário no campo idToken acima).
+    if (idToken && !body) {
+        url.searchParams.set("sessionToken", idToken);
+    }
+    let ultimoErro;
+    for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+        try {
+            const response = await fetch(url.toString(), {
+                method: body ? "POST" : "GET",
+                // Apps Script Web Apps têm um comportamento particular de CORS:
+                // preferir text/plain no corpo evita o preflight OPTIONS, que o
+                // Apps Script não trata nativamente.
+                headers: body ? { "Content-Type": "text/plain;charset=utf-8" } : undefined,
+                body: body ? JSON.stringify({ ...body, idToken }) : undefined,
+            });
+            if (!response.ok) {
+                throw new ErroTransporte(`Apps Script respondeu HTTP ${response.status} para a ação "${action}".`);
+            }
+            const texto = await response.text();
+            let json;
+            try {
+                json = JSON.parse(texto);
+            }
+            catch {
+                // Resposta não era JSON (ex: página HTML de erro/quota do Apps
+                // Script) — trata como falha transitória e reintenta.
+                throw new ErroTransporte(`Resposta inesperada (não-JSON) do Apps Script para a ação "${action}".`);
+            }
+            if (!json.success) {
+                // Erro de negócio (ex: token inválido/expirado) — não é
+                // transporte, não reintenta, propaga imediatamente.
+                throw new Error(json.error ?? "Erro desconhecido na API.");
+            }
+            return json.data;
+        }
+        catch (erro) {
+            ultimoErro = erro;
+            const transporte = erro instanceof ErroTransporte;
+            const ultimaTentativa = tentativa === MAX_TENTATIVAS;
+            registrarFalha(action, tentativa, erro, !transporte || ultimaTentativa);
+            if (!transporte) {
+                throw erro;
+            }
+            if (!ultimaTentativa) {
+                await esperar(ATRASO_BASE_MS * tentativa);
+            }
+        }
+    }
+    throw ultimoErro instanceof Error ? ultimoErro : new Error("Falha ao comunicar com o Apps Script.");
+}
+export const apiClient = { request };
