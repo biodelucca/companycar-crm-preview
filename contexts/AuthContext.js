@@ -1,6 +1,6 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useEffect, useState } from "react";
-  import { mockUsuarios } from "../mocks/data.js";
+import { mockUsuarios } from "../mocks/data.js";
 import { encerrarSessao } from "../services/auth.js";
 // Contexto de autenticação. Guarda o usuário logado e o token usado em
 // cada chamada de API.
@@ -24,7 +24,7 @@ import { encerrarSessao } from "../services/auth.js";
 // antes da autenticação real existir — decisão dentro da autonomia técnica
 // concedida pelo CEO (não muda regra de negócio, não aumenta complexidade,
 // acelera a entrega). Aprovada pelo CPO na revisão do Passo 3.
-const USE_MOCK = "false" === "true";
+const USE_MOCK = "true" === "true";
 const AuthContext = createContext(undefined);
 export function AuthProvider({ children }) {
     const [usuario, setUsuario] = useState(null);
@@ -36,12 +36,12 @@ export function AuthProvider({ children }) {
         }
     }, []);
     function login(token, user) {
-              setIdToken(token);
+        setIdToken(token);
         setUsuario(user);
     }
     function logout() {
-              if (USE_MOCK)
-                            return; // no preview mockado não há logout real
+        if (USE_MOCK)
+            return; // no preview mockado não há logout real
         // Limpa o estado local imediatamente (não espera a chamada de rede) —
         // o usuário não deve ficar preso na tela por causa de uma falha de
         // logout no backend, que é best-effort (ver services/auth.ts).
@@ -58,8 +58,8 @@ export function AuthProvider({ children }) {
     return (_jsx(AuthContext.Provider, { value: { usuario, idToken, login, logout }, children: children }));
 }
 export function useAuth() {
-      const ctx = useContext(AuthContext);
+    const ctx = useContext(AuthContext);
     if (!ctx)
-              throw new Error("useAuth deve ser usado dentro de um AuthProvider.");
+        throw new Error("useAuth deve ser usado dentro de um AuthProvider.");
     return ctx;
 }
