@@ -1,6 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
 import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, } from "../services/oportunidades.js";
+import { associarVeiculoEstoque } from "../services/estoque.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
 import { OpportunityCard } from "../components/OpportunityCard.js";
@@ -242,6 +243,49 @@ export function Pipeline() {
             setSalvandoAcao(false);
         }
     }
+    // Sprint 3 "Integração com Estoque do Simples" (2026-08-03) — associação
+    // de um veículo real do estoque. Mesmo padrão {ok, erro} de moverEtapa/
+    // transferir. O backend (associarVeiculoEstoque_) grava o snapshot e
+    // preenche veiculo_interesse; aqui só refletimos o retorno no estado
+    // local (mesma filosofia: quem manda é o backend, o frontend não
+    // recalcula nada por conta própria).
+    async function associarVeiculo(oportunidadeId, veiculoEstoqueId) {
+        setSalvandoAcao(true);
+        setAcaoErro(null);
+        try {
+            const resultado = await associarVeiculoEstoque({
+                oportunidadeId,
+                veiculoEstoqueId,
+                usuarioId: usuario?.id,
+            });
+            const agora = new Date().toISOString();
+            setOportunidades((prev) => prev.map((o) => o.id === oportunidadeId
+                ? {
+                    ...o,
+                    veiculoInteresse: resultado.veiculoInteresse,
+                    veiculoEstoqueId: resultado.veiculoEstoque.id,
+                    veiculoEstoqueMarca: resultado.veiculoEstoque.marca ?? undefined,
+                    veiculoEstoqueModeloVersao: resultado.veiculoEstoque.modeloVersao ?? undefined,
+                    veiculoEstoqueAno: resultado.veiculoEstoque.ano ?? undefined,
+                    veiculoEstoqueKm: resultado.veiculoEstoque.km ?? undefined,
+                    veiculoEstoquePreco: resultado.veiculoEstoque.preco ?? undefined,
+                    veiculoEstoqueImagem: resultado.veiculoEstoque.imagemPrincipal ?? undefined,
+                    veiculoEstoqueAssociadoEm: agora,
+                    atualizadoEm: agora,
+                }
+                : o));
+            registrarEvento(oportunidadeId, `${usuario?.nome ?? "Alguém"} associou o veículo "${resultado.veiculoInteresse}" (Simples #${veiculoEstoqueId})`, "veiculo_associado");
+            return { ok: true };
+        }
+        catch (e) {
+            const mensagem = e instanceof Error ? e.message : "Não foi possível associar o veículo agora.";
+            setAcaoErro(mensagem);
+            return { ok: false, erro: mensagem };
+        }
+        finally {
+            setSalvandoAcao(false);
+        }
+    }
     // Passo 7 — editar próxima ação (continua só em memória — fora do escopo
     // da Sprint 1).
     function atualizarProximaAcao(oportunidadeId, texto, data) {
@@ -348,6 +392,6 @@ export function Pipeline() {
                     const eventosDaOportunidade = timelineEventos
                         .filter((ev) => ev.oportunidadeId === oportunidadeSelecionada.id)
                         .sort((a, b) => (a.dataHora < b.dataHora ? 1 : -1));
-                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAtualizarProximaAcao: (texto, data) => atualizarProximaAcao(oportunidadeSelecionada.id, texto, data), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist) }));
+                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onAtualizarProximaAcao: (texto, data) => atualizarProximaAcao(oportunidadeSelecionada.id, texto, data), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist) }));
                 })(), dropPendente && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) }))] }));
 }
