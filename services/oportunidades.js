@@ -11,119 +11,118 @@ import { mockClientes, mockEtapas, mockOportunidades, mockUsuarios, mockMotivosP
 // antes da autenticação real existir (Passo 4). O resto da aplicação
 // (componentes, tipos) não muda quando isso for trocado: só a implementação
 // aqui dentro.
-const USE_MOCK = "false" === "true";
+const USE_MOCK = "true" === "true";
 function comAtraso(valor, ms = 250) {
     return new Promise((resolve) => setTimeout(() => resolve(valor), ms));
-    }
-    // --- Adaptação Sheets -> domínio -------------------------------------
-    //
-    // A planilha (fonte de verdade do schema, ver "Modelo de dados" na diretriz
-    // técnica) usa cabeçalhos em snake_case (cliente_id, proxima_acao, ...) e
-    // células de ID puramente numéricas viram Number no Apps Script. Os tipos
-    // do frontend (src/types) usam camelCase e id como string — convenção já
-    // usada nos mocks e nos componentes. Esta é a camada de tradução entre o
-    // contrato real da API e o domínio da aplicação (arquitetura: "frontend
-    // nunca acessa a planilha diretamente, tudo passa pela camada de
-    // Services") — trocar Sheets por outro banco no futuro não deve exigir
-    // mudar nada fora deste arquivo.
-    //
-    // Decisão do CPO (2026-08-02): a coluna "veiculo_troca" na planilha real
-    // fica como texto livre (ex: "Gol 2015, 80000km, ABC1234") — sem parsing
-    // para o objeto estruturado {modelo, ano, km, placa}. O texto é exposto
-    // como Oportunidade.veiculoTrocaDescricao; campos estruturados entram só
-    // quando ficar definido o que a pré-qualificação/cotação exigem.
-    function textoOuIndefinido(valor) {
-        if (valor === null || valor === undefined || valor === "")
-                return undefined;
-                    return String(valor);
-                    }
-                    function numeroOuIndefinido(valor) {
-                        if (valor === null || valor === undefined || valor === "")
-                                return undefined;
-                                    const n = Number(valor);
-                                        return Number.isNaN(n) ? undefined : n;
-                                        }
-                                        function mapEtapa(raw) {
-                                            return {
-                                                    id: String(raw.id),
-                                                            nome: raw.nome,
-                                                                    ordem: Number(raw.ordem),
-                                                                            tipo: raw.tipo,
-                                                                                };
-                                                                                }
-                                                                                function mapCliente(raw) {
-                                                                                    return {
-                                                                                            id: String(raw.id),
-                                                                                                    nome: raw.nome,
-                                                                                                            telefone: String(raw.telefone ?? ""),
-                                                                                                                    email: raw.email,
-                                                                                                                            cidade: raw.cidade,
-                                                                                                                                    criadoEm: raw.criado_em,
-                                                                                                                                            atualizadoEm: raw.atualizado_em,
-                                                                                                                                                };
-                                                                                                                                                }
-                                                                                                                                                function mapUsuario(raw) {
-                                                                                                                                                    return {
-                                                                                                                                                            id: String(raw.id),
-                                                                                                                                                                    nome: raw.nome,
-                                                                                                                                                                            email: raw.email,
-                                                                                                                                                                                    papel: raw.papel,
-                                                                                                                                                                                            ativo: Boolean(raw.ativo),
-                                                                                                                                                                                                    criadoEm: raw.criado_em,
-                                                                                                                                                                                                        };
-                                                                                                                                                                                                        }
-                                                                                                                                                                                                        function mapOportunidade(raw) {
-                                                                                                                                                                                                            return {
-                                                                                                                                                                                                                    id: String(raw.id),
-                                                                                                                                                                                                                            clienteId: String(raw.cliente_id),
-                                                                                                                                                                                                                                    etapaId: String(raw.etapa_id),
-                                                                                                                                                                                                                                            responsavelId: String(raw.responsavel_id),
-                                                                                                                                                                                                                                                    proximaAcao: raw.proxima_acao,
-                                                                                                                                                                                                                                                            proximaAcaoData: textoOuIndefinido(raw.proxima_acao_data) ?? null,
-                                                                                                                                                                                                                                                                    veiculoInteresse: raw.veiculo_interesse,
-                                                                                                                                                                                                                                                                            // ver nota acima — veiculo_troca real é texto livre, exposto em
-                                                                                                                                                                                                                                                                                    // veiculoTrocaDescricao (decisão do CPO, 2026-08-02).
-                                                                                                                                                                                                                                                                                            veiculoTroca: undefined,
-                                                                                                                                                                                                                                                                                                    veiculoTrocaDescricao: textoOuIndefinido(raw.veiculo_troca),
-                                                                                                                                                                                                                                                                                                            origemId: String(raw.origem_id),
-                                                                                                                                                                                                                                                                                                                    condicaoComercial: textoOuIndefinido(raw.condicao_comercial),
-                                                                                                                                                                                                                                                                                                                            valorProposto: numeroOuIndefinido(raw.valor_proposto),
-                                                                                                                                                                                                                                                                                                                                    criadoEm: raw.criado_em,
-                                                                                                                                                                                                                                                                                                                                            atualizadoEm: raw.atualizado_em,
-                                                                                                                                                                                                                                                                                                                                                    etapaOrigemPerdaId: textoOuIndefinido(raw.etapa_origem_perda_id),
-                                                                                                                                                                                                                                                                                                                                                            motivoPerdaId: textoOuIndefinido(raw.motivo_perda_id),
-                                                                                                                                                                                                                                                                                                                                                                    perdidoEm: textoOuIndefinido(raw.perdido_em),
-                                                                                                                                                                                                                                                                                                                                                                            perdidoPor: textoOuIndefinido(raw.perdido_por),
-                                                                                                                                                                                                                                                                                                                                                                                };
-                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                // --- Services ----------------------------------------------------------
-                                                                                                                                                                                                                                                                                                                                                                                export async function listOportunidades(idToken) {
-                                                                                                                                                                                                                                                                                                                                                                                    if (USE_MOCK)
-                                                                                                                                                                                                                                                                                                                                                                                            return comAtraso(mockOportunidades);
-                                                                                                                                                                                                                                                                                                                                                                                                const raw = await apiClient.request({ action: "listOportunidades", idToken });
-                                                                                                                                                                                                                                                                                                                                                                                                    return raw.map(mapOportunidade);
-                                                                                                                                                                                                                                                                                                                                                                                                    }
-                                                                                                                                                                                                                                                                                                                                                                                                    export async function listEtapas(idToken) {
-                                                                                                                                                                                                                                                                                                                                                                                                        if (USE_MOCK)
-                                                                                                                                                                                                                                                                                                                                                                                                                return comAtraso(mockEtapas);
-                                                                                                                                                                                                                                                                                                                                                                                                                    const raw = await apiClient.request({ action: "listEtapas", idToken });
-                                                                                                                                                                                                                                                                                                                                                                                                                        return raw.map(mapEtapa);
-                                                                                                                                                                                                                                                                                                                                                                                                                        }
-                                                                                                                                                                                                                                                                                                                                                                                                                        export async function listClientes(idToken) {
-                                                                                                                                                                                                                                                                                                                                                                                                                            if (USE_MOCK)
-                                                                                                                                                                                                                                                                                                                                                                                                                                    return comAtraso(mockClientes);
-                                                                                                                                                                                                                                                                                                                                                                                                                                        const raw = await apiClient.request({ action: "listClientes", idToken });
-                                                                                                                                                                                                                                                                                                                                                                                                                                            return raw.map(mapCliente);
-                                                                                                                                                                                                                                                                                                                                                                                                                                            }
-                                                                                                                                                                                                                                                                                                                                                                                                                                            export async function listUsuarios(idToken) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                if (USE_MOCK)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                        return comAtraso(mockUsuarios);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                            const raw = await apiClient.request({ action: "listUsuarios", idToken });
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                return raw.map(mapUsuario);
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                export function nomeMotivoPerda(motivoPerdaId) {
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                    if (!motivoPerdaId)
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                            return undefined;
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                return mockMotivosPerda[motivoPerdaId];
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                }
-                                                                                                                                                                                                                                                                                                                                                                                                                                                                                
+}
+// --- Adaptação Sheets -> domínio -------------------------------------
+//
+// A planilha (fonte de verdade do schema, ver "Modelo de dados" na diretriz
+// técnica) usa cabeçalhos em snake_case (cliente_id, proxima_acao, ...) e
+// células de ID puramente numéricas viram Number no Apps Script. Os tipos
+// do frontend (src/types) usam camelCase e id como string — convenção já
+// usada nos mocks e nos componentes. Esta é a camada de tradução entre o
+// contrato real da API e o domínio da aplicação (arquitetura: "frontend
+// nunca acessa a planilha diretamente, tudo passa pela camada de
+// Services") — trocar Sheets por outro banco no futuro não deve exigir
+// mudar nada fora deste arquivo.
+//
+// Decisão do CPO (2026-08-02): a coluna "veiculo_troca" na planilha real
+// fica como texto livre (ex: "Gol 2015, 80000km, ABC1234") — sem parsing
+// para o objeto estruturado {modelo, ano, km, placa}. O texto é exposto
+// como Oportunidade.veiculoTrocaDescricao; campos estruturados entram só
+// quando ficar definido o que a pré-qualificação/cotação exigem.
+function textoOuIndefinido(valor) {
+    if (valor === null || valor === undefined || valor === "")
+        return undefined;
+    return String(valor);
+}
+function numeroOuIndefinido(valor) {
+    if (valor === null || valor === undefined || valor === "")
+        return undefined;
+    const n = Number(valor);
+    return Number.isNaN(n) ? undefined : n;
+}
+function mapEtapa(raw) {
+    return {
+        id: String(raw.id),
+        nome: raw.nome,
+        ordem: Number(raw.ordem),
+        tipo: raw.tipo,
+    };
+}
+function mapCliente(raw) {
+    return {
+        id: String(raw.id),
+        nome: raw.nome,
+        telefone: String(raw.telefone ?? ""),
+        email: raw.email,
+        cidade: raw.cidade,
+        criadoEm: raw.criado_em,
+        atualizadoEm: raw.atualizado_em,
+    };
+}
+function mapUsuario(raw) {
+    return {
+        id: String(raw.id),
+        nome: raw.nome,
+        email: raw.email,
+        papel: raw.papel,
+        ativo: Boolean(raw.ativo),
+        criadoEm: raw.criado_em,
+    };
+}
+function mapOportunidade(raw) {
+    return {
+        id: String(raw.id),
+        clienteId: String(raw.cliente_id),
+        etapaId: String(raw.etapa_id),
+        responsavelId: String(raw.responsavel_id),
+        proximaAcao: raw.proxima_acao,
+        proximaAcaoData: textoOuIndefinido(raw.proxima_acao_data) ?? null,
+        veiculoInteresse: raw.veiculo_interesse,
+        // ver nota acima — veiculo_troca real é texto livre, exposto em
+        // veiculoTrocaDescricao (decisão do CPO, 2026-08-02).
+        veiculoTroca: undefined,
+        veiculoTrocaDescricao: textoOuIndefinido(raw.veiculo_troca),
+        origemId: String(raw.origem_id),
+        condicaoComercial: textoOuIndefinido(raw.condicao_comercial),
+        valorProposto: numeroOuIndefinido(raw.valor_proposto),
+        criadoEm: raw.criado_em,
+        atualizadoEm: raw.atualizado_em,
+        etapaOrigemPerdaId: textoOuIndefinido(raw.etapa_origem_perda_id),
+        motivoPerdaId: textoOuIndefinido(raw.motivo_perda_id),
+        perdidoEm: textoOuIndefinido(raw.perdido_em),
+        perdidoPor: textoOuIndefinido(raw.perdido_por),
+    };
+}
+// --- Services ----------------------------------------------------------
+export async function listOportunidades(idToken) {
+    if (USE_MOCK)
+        return comAtraso(mockOportunidades);
+    const raw = await apiClient.request({ action: "listOportunidades", idToken });
+    return raw.map(mapOportunidade);
+}
+export async function listEtapas(idToken) {
+    if (USE_MOCK)
+        return comAtraso(mockEtapas);
+    const raw = await apiClient.request({ action: "listEtapas", idToken });
+    return raw.map(mapEtapa);
+}
+export async function listClientes(idToken) {
+    if (USE_MOCK)
+        return comAtraso(mockClientes);
+    const raw = await apiClient.request({ action: "listClientes", idToken });
+    return raw.map(mapCliente);
+}
+export async function listUsuarios(idToken) {
+    if (USE_MOCK)
+        return comAtraso(mockUsuarios);
+    const raw = await apiClient.request({ action: "listUsuarios", idToken });
+    return raw.map(mapUsuario);
+}
+export function nomeMotivoPerda(motivoPerdaId) {
+    if (!motivoPerdaId)
+        return undefined;
+    return mockMotivosPerda[motivoPerdaId];
+}
