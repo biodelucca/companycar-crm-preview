@@ -252,6 +252,24 @@ button {
   background: #f5e9e9;
 }
 
+/* Sprint 1 — drag-and-drop (desktop): destaque da coluna sob o card
+   arrastado, ver handleDragOverColuna/handleDropColuna em Pipeline.tsx. */
+.pipeline__coluna--sobre {
+  outline: 2px dashed var(--cor-primaria);
+  outline-offset: -4px;
+  background: #fdeded;
+}
+
+.pipeline__aviso-acao {
+  margin: 12px 16px 0;
+  padding: 8px 14px;
+  background: #fdeded;
+  border: 1px solid #f3caca;
+  border-radius: 8px;
+  color: var(--cor-primaria-escura);
+  font-size: 13px;
+}
+
 .pipeline__coluna-header {
   display: flex;
   align-items: center;
@@ -305,6 +323,16 @@ button {
 
 .op-card:hover {
   border-color: var(--cor-primaria);
+}
+
+/* Sprint 1 — drag-and-drop (desktop only, ver arrastavel em
+   OpportunityCard.tsx/Pipeline.tsx). */
+.op-card--arrastavel {
+  cursor: grab;
+}
+
+.op-card--arrastavel:active {
+  cursor: grabbing;
 }
 
 .op-card__veiculo {
@@ -588,6 +616,36 @@ button {
   color: var(--cor-primaria);
 }
 
+/* ---------- Modal de motivo de perda (drag-and-drop -> Perdido) ---------- */
+/* Sprint 1 — mesmo padrão visual do side-panel__overlay, mas centralizado
+   em vez de ancorado à direita (ver dropPendente em Pipeline.tsx). */
+
+.drop-motivo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.drop-motivo-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  width: min(360px, 90vw);
+  box-shadow: var(--sombra-card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.drop-motivo-modal h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
 /* ---------- Responsivo ---------- */
 
 @media (max-width: 720px) {
@@ -652,7 +710,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + mover etapa, timeline, pr&oacute;xima a&ccedil;&atilde;o, checklist e anota&ccedil;&otilde;es (Sheets)</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; modo mock (login pausado) + Sprint 1 Opera&ccedil;&atilde;o Comercial: transfer&ecirc;ncia, drag-and-drop, motivos/origens oficiais e timeline (Sheets)</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
