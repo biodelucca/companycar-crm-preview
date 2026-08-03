@@ -221,3 +221,25 @@ export async function transferirOportunidade(dados, idToken) {
         idToken: idToken ?? undefined,
     });
 }
+export async function criarOportunidade(dados, idToken) {
+    const raw = await apiClient.request({
+        action: "criarOportunidade",
+        body: {
+            nome: dados.nome,
+            telefone: dados.telefone,
+            origemId: dados.origemId,
+            responsavelId: dados.responsavelId,
+            cidade: dados.cidade,
+            veiculoInteresse: dados.veiculoInteresse,
+            anotacoesIniciais: dados.anotacoesIniciais,
+            proximaAcao: dados.proximaAcao,
+            proximaAcaoData: dados.proximaAcaoData,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+    return {
+        oportunidade: mapOportunidade(raw.oportunidade),
+        cliente: mapCliente(raw.cliente),
+    };
+}
