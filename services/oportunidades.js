@@ -131,6 +131,17 @@ function mapOportunidade(raw) {
         perdidoEm: textoOuIndefinido(raw.perdido_em),
         perdidoPor: textoOuIndefinido(raw.perdido_por),
         motivoPerdaDescricaoOutro: textoOuIndefinido(raw.motivo_perda_descricao_outro),
+        // Sprint 3 "Integração com Estoque do Simples" (2026-08-03) — snapshot
+        // gravado por associarVeiculoEstoque_ (ver services/estoque.ts para o
+        // porquê de existir um snapshot em vez de só o id).
+        veiculoEstoqueId: textoOuIndefinido(raw.veiculo_estoque_id),
+        veiculoEstoqueMarca: textoOuIndefinido(raw.veiculo_estoque_marca),
+        veiculoEstoqueModeloVersao: textoOuIndefinido(raw.veiculo_estoque_modelo_versao),
+        veiculoEstoqueAno: textoOuIndefinido(raw.veiculo_estoque_ano),
+        veiculoEstoqueKm: numeroOuIndefinido(raw.veiculo_estoque_km),
+        veiculoEstoquePreco: numeroOuIndefinido(raw.veiculo_estoque_preco),
+        veiculoEstoqueImagem: textoOuIndefinido(raw.veiculo_estoque_imagem),
+        veiculoEstoqueAssociadoEm: textoOuIndefinido(raw.veiculo_estoque_associado_em),
     };
 }
 // --- Services ----------------------------------------------------------
