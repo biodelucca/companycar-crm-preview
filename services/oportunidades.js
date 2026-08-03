@@ -1,17 +1,26 @@
 import { apiClient } from "./apiClient.js";
-import { mockClientes, mockEtapas, mockOportunidades, mockUsuarios, mockMotivosPerda } from "../mocks/data.js";
+import { mockClientes, mockEtapas, mockOportunidades, mockUsuarios } from "../mocks/data.js";
 // Camada de Services para a entidade Oportunidade/Pipeline.
 // Passo 3 do roadmap (2026-08-02): dados reais via Apps Script/Sheets.
-// Ainda somente leitura — criar/editar oportunidade fica para um próximo
-// ciclo (Passo 5, movimentação de oportunidades).
+//
+// Sprint 1 "Operação Comercial" (2026-08-03): USE_MOCK de dados passa a
+// ser ligado como "false" no build publicado (ver BUILD_USE_MOCK_DATA em
+// scripts/build-cdn.cjs) — o Pipeline passa a usar dados reais da
+// planilha (Oportunidades, Etapas, Clientes, Usuarios), pré-condição para
+// a persistência de mover etapa/transferência fazer sentido de ponta a
+// ponta na UI (ver decisão de sessão registrada em Roteador.gs). Também
+// entram as duas primeiras escritas reais desta entidade:
+// moverEtapaOportunidade e transferirOportunidade, e as listas oficiais
+// de MotivosPerda/Origens (antes placeholders) e a leitura da Timeline
+// persistida.
 //
 // MOCK: enquanto VITE_USE_MOCK_DATA=true, os dados vêm de src/mocks/data.ts
 // em vez do Apps Script. Flag separada da de autenticação (VITE_USE_MOCK_AUTH,
 // ver contexts/AuthContext.tsx) desde o Passo 3 — dados reais podem ligar
-// antes da autenticação real existir (Passo 4). O resto da aplicação
-// (componentes, tipos) não muda quando isso for trocado: só a implementação
-// aqui dentro.
-const USE_MOCK = "true" === "true";
+// antes da autenticação real existir (Passo 4, ainda pausado). O resto da
+// aplicação (componentes, tipos) não muda quando isso for trocado: só a
+// implementação aqui dentro.
+const USE_MOCK = "false" === "true";
 function comAtraso(valor, ms = 250) {
     return new Promise((resolve) => setTimeout(() => resolve(valor), ms));
 }
@@ -72,6 +81,33 @@ function mapUsuario(raw) {
         criadoEm: raw.criado_em,
     };
 }
+// Sprint 1 — listas oficiais (id numérico da planilha vira string, mesma
+// convenção usada em todo o resto desta camada).
+function mapMotivoPerda(raw) {
+    return {
+        id: String(raw.id),
+        nome: raw.nome,
+        ativo: Boolean(raw.ativo),
+    };
+}
+function mapOrigem(raw) {
+    return {
+        id: String(raw.id),
+        nome: raw.nome,
+        tipo: raw.tipo,
+        ativo: Boolean(raw.ativo),
+    };
+}
+function mapTimelineEvento(raw) {
+    return {
+        id: String(raw.id),
+        oportunidadeId: String(raw.oportunidade_id),
+        tipoEvento: raw.tipo_evento,
+        descricao: raw.descricao,
+        usuarioId: raw.usuario_id !== undefined && raw.usuario_id !== null ? String(raw.usuario_id) : "",
+        dataHora: raw.data_hora,
+    };
+}
 function mapOportunidade(raw) {
     return {
         id: String(raw.id),
@@ -94,6 +130,7 @@ function mapOportunidade(raw) {
         motivoPerdaId: textoOuIndefinido(raw.motivo_perda_id),
         perdidoEm: textoOuIndefinido(raw.perdido_em),
         perdidoPor: textoOuIndefinido(raw.perdido_por),
+        motivoPerdaDescricaoOutro: textoOuIndefinido(raw.motivo_perda_descricao_outro),
     };
 }
 // --- Services ----------------------------------------------------------
@@ -121,8 +158,55 @@ export async function listUsuarios(idToken) {
     const raw = await apiClient.request({ action: "listUsuarios", idToken });
     return raw.map(mapUsuario);
 }
-export function nomeMotivoPerda(motivoPerdaId) {
-    if (!motivoPerdaId)
-        return undefined;
-    return mockMotivosPerda[motivoPerdaId];
+// Sprint 1 — listas oficiais de Motivos de Perda (14 itens) e Origens (17
+// itens), substituindo os placeholders anteriores. Sem branch de mock
+// "cheio" (o antigo mockMotivosPerda era só um dict id->nome com 2 itens
+// fictícios) — como USE_MOCK está false no build publicado, o caminho
+// real é o que importa; em ambiente de dev com mock ligado, ambas
+// retornam lista vazia em vez de dados inventados.
+export async function listMotivosPerda(idToken) {
+    if (USE_MOCK)
+        return comAtraso([]);
+    const raw = await apiClient.request({ action: "listMotivosPerda", idToken });
+    return raw.map(mapMotivoPerda);
+}
+export async function listOrigens(idToken) {
+    if (USE_MOCK)
+        return comAtraso([]);
+    const raw = await apiClient.request({ action: "listOrigens", idToken });
+    return raw.map(mapOrigem);
+}
+// Timeline persistida (Timeline.gs) — por ora só eventos de mudança de
+// etapa e transferência são gravados de verdade (ver Oportunidades.gs);
+// próxima ação e checklist continuam só em memória (fora do escopo desta
+// Sprint).
+export async function listTimeline(idToken) {
+    if (USE_MOCK)
+        return comAtraso([]);
+    const raw = await apiClient.request({ action: "listTimeline", idToken });
+    return raw.map(mapTimelineEvento);
+}
+export async function moverEtapaOportunidade(dados, idToken) {
+    await apiClient.request({
+        action: "moverEtapaOportunidade",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            novaEtapaId: dados.novaEtapaId,
+            motivoPerdaId: dados.motivoPerdaId,
+            motivoPerdaOutroTexto: dados.motivoPerdaOutroTexto,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+}
+export async function transferirOportunidade(dados, idToken) {
+    await apiClient.request({
+        action: "transferirOportunidade",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            novoResponsavelId: dados.novoResponsavelId,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
 }
