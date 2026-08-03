@@ -1,6 +1,5 @@
 import { jsx as _jsx } from "react/jsx-runtime";
 import { createContext, useContext, useEffect, useState } from "react";
-import { mockUsuarios } from "../mocks/data.js";
 import { encerrarSessao } from "../services/auth.js";
 // Contexto de autenticação. Guarda o usuário logado e o token usado em
 // cada chamada de API.
@@ -25,13 +24,33 @@ import { encerrarSessao } from "../services/auth.js";
 // concedida pelo CEO (não muda regra de negócio, não aumenta complexidade,
 // acelera a entrega). Aprovada pelo CPO na revisão do Passo 3.
 const USE_MOCK = "true" === "true";
+// Sprint 1 "Operação Comercial" (2026-08-03): a aba Usuarios da planilha
+// real agora tem 6 usuários com id numérico (1-6, ver seed em
+// claude/cto-diretriz-tecnica-crm-mvp-2026-08.md) — os antigos
+// mockUsuarios (u1-u4, fictícios) não existem mais no backend. Como as
+// escritas desta Sprint (moverEtapaOportunidade, transferirOportunidade)
+// mandam o id do usuário logado para a planilha (quem fez a ação), o
+// usuário do modo mock de autenticação passou a espelhar o registro real
+// de id=1 (Guilherme) em vez de mockUsuarios[0] — senão toda ação
+// registrada na Timeline referenciaria um usuarioId inexistente. Isto é
+// só o "ator" simulado enquanto o login Google real fica pausado; não
+// afeta a lista de usuários mostrada no app (essa já vem real, ver
+// services/oportunidades.ts).
+const usuarioMockPadrao = {
+    id: "1",
+    nome: "Guilherme dos Santos De Lucca",
+    email: "biodelucca@gmail.com",
+    papel: "Gerencia",
+    ativo: true,
+    criadoEm: "2026-08-02",
+};
 const AuthContext = createContext(undefined);
 export function AuthProvider({ children }) {
     const [usuario, setUsuario] = useState(null);
     const [idToken, setIdToken] = useState(null);
     useEffect(() => {
         if (USE_MOCK) {
-            setUsuario(mockUsuarios[0]);
+            setUsuario(usuarioMockPadrao);
             setIdToken("mock-id-token");
         }
     }, []);
