@@ -759,6 +759,75 @@ button {
   color: var(--cor-primaria);
 }
 
+/* ---------- Sprint 3: veículo do estoque (busca / associação) ---------- */
+
+.side-panel__veiculo-estoque {
+  margin-bottom: 12px;
+}
+
+.side-panel__veiculo-estoque-imagem {
+  width: 100%;
+  max-height: 140px;
+  object-fit: cover;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--cor-borda);
+}
+
+.side-panel__estoque-resultados {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.side-panel__estoque-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+}
+
+.side-panel__estoque-item img {
+  width: 56px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.side-panel__estoque-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.side-panel__estoque-item-info strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side-panel__estoque-item-info span {
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.side-panel__estoque-item .side-panel__botao-primario {
+  padding: 7px 10px;
+  font-size: 12.5px;
+  flex-shrink: 0;
+}
+
 /* ---------- Modal de motivo de perda (drag-and-drop -> Perdido) ---------- */
 /* Sprint 1 — mesmo padrão visual do side-panel__overlay, mas centralizado
    em vez de ancorado à direita (ver dropPendente em Pipeline.tsx). */
