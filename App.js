@@ -16,7 +16,7 @@ function Root() {
     const [oportunidadeParaAbrirNoPipeline, setOportunidadeParaAbrirNoPipeline] = useState(null);
     if (!usuario)
         return _jsx(Login, {});
-    return (_jsxs(AppLayout, { vista: vista, onMudarVista: setVista, children: [vista === "dashboard" && _jsx(Dashboard, { onIrPipeline: () => setVista("pipeline") }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null) })), vista === "conversas" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
+    return (_jsxs(AppLayout, { vista: vista, onMudarVista: setVista, children: [vista === "dashboard" && _jsx(Dashboard, { onIrPipeline: () => setVista("pipeline") }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null) })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
                     setOportunidadeParaAbrirNoPipeline(oportunidadeId);
                     setVista("pipeline");
                 } }))] }));
