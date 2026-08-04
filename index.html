@@ -936,6 +936,10 @@ button {
 }
 
 /* ---------- Conversas (WhatsApp, Sprint 5, 2026-08-04) ---------- */
+/* Reformulado na "Fase de Refinamento — UX do módulo de Conversas"
+   (2026-08-04): objetivo do CEO é uma experiência capaz de substituir o
+   Digisac no dia a dia da equipe. Ver comentário no topo de
+   src/pages/Conversas.tsx para a lista completa do que mudou e por quê. */
 
 .conversas {
   display: flex;
@@ -976,6 +980,31 @@ button {
   padding: 2px 8px;
 }
 
+.conversas__badge-naolidas {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--cor-primaria-escura, #d62828);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+.conversas__busca {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.conversas__busca input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
 .conversas__vazio {
   padding: 16px;
   color: var(--cor-texto-suave);
@@ -989,7 +1018,9 @@ button {
 }
 
 .conversas__item {
-  display: block;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   width: 100%;
   text-align: left;
   background: none;
@@ -1005,6 +1036,34 @@ button {
 
 .conversas__item--ativo {
   background: rgba(214, 40, 40, 0.06);
+}
+
+.conversas__item--naolida .conversas__item-topo strong,
+.conversas__item--naolida .conversas__item-preview {
+  color: var(--cor-texto, #1a1a1a);
+  font-weight: 600;
+}
+
+.conversas__item-avatar {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cor-texto-suave);
+}
+
+.conversas__item-corpo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .conversas__item-topo {
@@ -1038,6 +1097,8 @@ button {
 
 .conversas__item-rodape {
   display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .conversas__badge {
@@ -1053,6 +1114,14 @@ button {
   color: var(--cor-primaria-escura);
   background: rgba(214, 40, 40, 0.08);
   border-color: rgba(214, 40, 40, 0.25);
+}
+
+.conversas__ponto-naolida {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cor-primaria-escura, #d62828);
+  flex-shrink: 0;
 }
 
 .conversas__thread {
@@ -1071,9 +1140,23 @@ button {
 }
 
 .conversas__thread-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--cor-borda);
   background: #fff;
+}
+
+.conversas__thread-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.conversas__thread-header-acoes {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .conversas__thread-header h3 {
@@ -1084,6 +1167,106 @@ button {
 .conversas__thread-telefone {
   font-size: 12px;
   color: var(--cor-texto-suave);
+}
+
+.conversas__voltar {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--cor-primaria-escura, #d62828);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 4px 4px 0;
+}
+
+.conversas__acoes-toggle {
+  font-size: 11.5px;
+  color: var(--cor-texto-suave);
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  padding: 5px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.conversas__acoes-toggle:hover {
+  background: #fff;
+}
+
+.conversas__painel-acoes {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--cor-borda);
+  background: var(--cor-fundo);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.conversas__acoes-aviso {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--cor-texto-suave);
+}
+
+.conversas__acoes-sucesso {
+  margin: 0;
+  font-size: 12.5px;
+  color: #2a7a3d;
+}
+
+.conversas__acao-bloco {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conversas__acao-bloco > label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cor-texto-suave);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.conversas__acao-linha {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.conversas__acao-linha select,
+.conversas__acao-bloco input[type="text"] {
+  padding: 7px 9px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 12.5px;
+}
+
+.conversas__acao-bloco input[type="text"] {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.conversas__timeline {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 160px;
+  overflow-y: auto;
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.conversas__timeline-hora {
+  color: var(--cor-texto-suave);
+  font-weight: 600;
 }
 
 .conversas__vincular {
@@ -1098,7 +1281,28 @@ button {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
+}
+
+.conversas__grupo-dia {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.conversas__separador-dia {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0 6px;
+}
+
+.conversas__separador-dia span {
+  font-size: 11px;
+  color: var(--cor-texto-suave);
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  padding: 3px 12px;
 }
 
 .conversas__balao {
@@ -1106,7 +1310,17 @@ button {
   border-radius: 12px;
   padding: 8px 12px;
   font-size: 13.5px;
+  line-height: 1.42;
   white-space: pre-wrap;
+  margin-bottom: 4px;
+}
+
+.conversas__balao-autor {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--cor-primaria-escura, #d62828);
+  margin-bottom: 2px;
 }
 
 .conversas__balao p {
@@ -1118,6 +1332,7 @@ button {
   margin-top: 4px;
   font-size: 10.5px;
   color: var(--cor-texto-suave);
+  text-align: right;
 }
 
 .conversas__balao--recebida {
@@ -1128,14 +1343,20 @@ button {
 
 .conversas__balao--enviada {
   align-self: flex-end;
-  background: rgba(214, 40, 40, 0.08);
-  border: 1px solid rgba(214, 40, 40, 0.2);
+  background: rgba(37, 130, 62, 0.1);
+  border: 1px solid rgba(37, 130, 62, 0.25);
 }
 
 .conversas__caixa-envio {
-  padding: 12px 20px;
+  padding: 10px 20px 14px;
   border-top: 1px solid var(--cor-borda);
   background: #fff;
+}
+
+.conversas__enviando-como {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--cor-texto-suave);
 }
 
 .conversas__caixa-envio-linha {
@@ -1220,22 +1441,34 @@ button {
     width: 100%;
   }
 
+  /* Painel único no celular (2026-08-04): antes lista e conversa ficavam
+     espremidas uma em cima da outra (lista fixa em 40vh) — o espaço real
+     pra ler mensagens era pequeno demais pra uso diário. Agora
+     Conversas.tsx só renderiza um painel por vez (lista OU conversa, com
+     botão "← Conversas" pra voltar), então cada um pode ocupar a tela
+     inteira. */
   .conversas {
-    flex-direction: column;
     height: calc(100vh - 61px);
   }
 
   .conversas__lista {
     width: 100%;
-    max-height: 40vh;
-    border-right: none;
-    border-bottom: 1px solid var(--cor-borda);
   }
 
   .conversas__balao {
     max-width: 90%;
   }
+
+  .conversas__thread-header {
+    flex-wrap: wrap;
+  }
+
+  .conversas__thread-header-acoes {
+    width: 100%;
+    order: 3;
+  }
 }
+
 </style>
 <script type="importmap">
 {
@@ -1249,7 +1482,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) — Sprint 5 em andamento: módulo de Conversas (WhatsApp) disponível no CRM, aguardando conexão da Evolution API</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>Sprint 5 &mdash; WhatsApp validado ponta a ponta; módulo Conversas refinado (busca, não lidas, atualização automática, ações rápidas, painel único no celular)</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
