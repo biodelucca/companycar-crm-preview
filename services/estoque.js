@@ -13,6 +13,21 @@ import { apiClient } from "./apiClient.js";
 // dados fictícios úteis para desenvolvimento (a analise de campos do XML
 // real foi o próprio trabalho da Etapa 1 desta Sprint) — sempre usa o
 // backend real.
+//
+// BUG corrigido em 2026-08-04 (achado ao investigar "estoque não
+// acessível" reportado pelo Guilherme em produção): listEstoque e
+// associarVeiculoEstoque não enviavam idToken — correto até a Sprint 4,
+// quando as duas ações estavam em ACOES_SEM_SESSAO/ACOES_POST_SEM_SESSAO
+// (Roteador.gs) e não exigiam sessão. A Sprint 4 ("exigirSessaoValida_ em
+// todos os endpoints, leitura e escrita") trancou as duas junto com todo
+// o resto, mas este arquivo nunca foi atualizado para acompanhar —
+// listEstoque passou a falhar sempre com SESSAO_EXPIRADA (nenhum
+// sessionToken chegava ao backend), silenciosamente absorvido pelo
+// catch-all do painel lateral como "Não foi possível consultar o estoque
+// agora." Corrigido replicando o mesmo padrão já usado em
+// oportunidades.ts (idToken como parâmetro explícito, propagado pelo
+// chamador via useAuth) — nenhuma mudança de comportamento além de voltar
+// a funcionar.
 function textoOuNulo(valor) {
     if (valor === null || valor === undefined || valor === "")
         return null;
@@ -47,11 +62,10 @@ function mapVeiculoEstoque(raw) {
 // itens no feed real na análise da Etapa 1, volume pequeno o bastante para
 // a busca acontecer no cliente (ver buscarVeiculosEstoque abaixo).
 //
-// Sem idToken: "listEstoque" está em ACOES_SEM_SESSAO (Roteador.gs) — mesma
-// decisão de segurança já usada em Anotações (ver services/anotacoes.ts,
-// que segue o mesmo padrão de não enviar idToken para ações sem sessão).
-export async function listEstoque() {
-    const raw = await apiClient.request({ action: "listEstoque" });
+// idToken obrigatório desde a Sprint 4 (exigirSessaoValida_ em todos os
+// endpoints) — ver nota de correção no topo deste arquivo.
+export async function listEstoque(idToken) {
+    const raw = await apiClient.request({ action: "listEstoque", idToken });
     return raw.map(mapVeiculoEstoque);
 }
 // Busca por texto em marca/modeloVersao/ano — aprovada pelo CEO para o MVP
@@ -69,10 +83,11 @@ export function buscarVeiculosEstoque(veiculos, termo) {
 }
 // Associa um veículo do estoque a uma oportunidade (associarVeiculoEstoque_
 // em Oportunidades.gs) — grava o snapshot na própria linha da oportunidade
-// e preenche veiculo_interesse. Mesma decisão de segurança "sem sessão" já
-// usada nos demais endpoints de escrita desde o Ciclo 5 (ver comentário no
-// topo de Roteador.gs) — sem idToken, mesmo padrão de Anotações.
-export async function associarVeiculoEstoque(dados) {
+// e preenche veiculo_interesse. idToken obrigatório desde a Sprint 4 (ver
+// nota de correção no topo deste arquivo) — mesmo padrão já usado por
+// moverEtapaOportunidade/transferirOportunidade em oportunidades.ts
+// (idToken como parâmetro separado do corpo de domínio).
+export async function associarVeiculoEstoque(dados, idToken) {
     const raw = await apiClient.request({
         action: "associarVeiculoEstoque",
         body: {
@@ -80,6 +95,7 @@ export async function associarVeiculoEstoque(dados) {
             veiculoEstoqueId: dados.veiculoEstoqueId,
             usuarioId: dados.usuarioId,
         },
+        idToken: idToken ?? undefined,
     });
     return {
         veiculoInteresse: raw.veiculoInteresse,
