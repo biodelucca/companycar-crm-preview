@@ -56,7 +56,7 @@ function novoEventoId() {
 // por botão no SidePanel funciona (requisito explícito da Sprint 1:
 // "desktop only").
 const LARGURA_MINIMA_DRAG = 721;
-export function Pipeline() {
+export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial } = {}) {
     const { idToken, logout, usuario } = useAuth();
     const [etapas, setEtapas] = useState([]);
     const [oportunidades, setOportunidades] = useState([]);
@@ -170,6 +170,13 @@ export function Pipeline() {
         })
             .finally(() => setCarregando(false));
     }, [idToken, logout]);
+    useEffect(() => {
+        if (carregando || !oportunidadeInicialId)
+            return;
+        setSelecionadaId(oportunidadeInicialId);
+        aoConsumirOportunidadeInicial?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [carregando, oportunidadeInicialId]);
     if (carregando)
         return _jsx("p", { className: "pipeline-loading", children: "Carregando pipeline..." });
     if (erro)
