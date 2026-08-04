@@ -297,7 +297,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                 oportunidadeId,
                 veiculoEstoqueId,
                 usuarioId: usuario?.id,
-            });
+            }, idToken);
             const agora = new Date().toISOString();
             setOportunidades((prev) => prev.map((o) => o.id === oportunidadeId
                 ? {
