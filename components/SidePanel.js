@@ -105,11 +105,13 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
     const [anotacoesErro, setAnotacoesErro] = useState(null);
     const [anotacoesSalvoAgora, setAnotacoesSalvoAgora] = useState(false);
     useEffect(() => {
+        if (!idToken)
+            return;
         let cancelado = false;
         setAnotacoesCarregando(true);
         setAnotacoesErro(null);
         setAnotacoesSalvoAgora(false);
-        obterAnotacao(oportunidade.id)
+        obterAnotacao(oportunidade.id, idToken)
             .then((texto) => {
             if (cancelado)
                 return;
@@ -127,11 +129,11 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
         return () => {
             cancelado = true;
         };
-    }, [oportunidade.id]);
+    }, [oportunidade.id, idToken]);
     function handleSalvarAnotacoes() {
         setAnotacoesSalvando(true);
         setAnotacoesErro(null);
-        salvarAnotacao(oportunidade.id, anotacoesTexto)
+        salvarAnotacao(oportunidade.id, anotacoesTexto, idToken)
             .then((texto) => {
             setAnotacoesSalvo(texto);
             setAnotacoesTexto(texto);
