@@ -935,6 +935,227 @@ button {
   font-size: 15px;
 }
 
+/* ---------- Conversas (WhatsApp, Sprint 5, 2026-08-04) ---------- */
+
+.conversas {
+  display: flex;
+  height: calc(100vh - 61px); /* 61px = altura aproximada do .app-header */
+  min-height: 480px;
+}
+
+.conversas__lista {
+  width: 320px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--cor-borda);
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.conversas__lista-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px;
+  border-bottom: 1px solid var(--cor-borda);
+}
+
+.conversas__lista-header h2 {
+  margin: 0;
+  font-size: 16px;
+  flex: 1;
+}
+
+.conversas__contagem {
+  font-size: 11px;
+  color: var(--cor-texto-suave);
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.conversas__vazio {
+  padding: 16px;
+  color: var(--cor-texto-suave);
+  font-size: 13px;
+}
+
+.conversas__itens {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.conversas__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--cor-borda);
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.conversas__item:hover {
+  background: var(--cor-fundo);
+}
+
+.conversas__item--ativo {
+  background: rgba(214, 40, 40, 0.06);
+}
+
+.conversas__item-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.conversas__item-topo strong {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversas__item-hora {
+  font-size: 11px;
+  color: var(--cor-texto-suave);
+  flex-shrink: 0;
+}
+
+.conversas__item-preview {
+  margin: 4px 0 6px;
+  font-size: 12.5px;
+  color: var(--cor-texto-suave);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversas__item-rodape {
+  display: flex;
+}
+
+.conversas__badge {
+  font-size: 10.5px;
+  color: var(--cor-texto-suave);
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.conversas__badge--pendente {
+  color: var(--cor-primaria-escura);
+  background: rgba(214, 40, 40, 0.08);
+  border-color: rgba(214, 40, 40, 0.25);
+}
+
+.conversas__thread {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.conversas__thread-vazio {
+  margin: auto;
+  color: var(--cor-texto-suave);
+  font-size: 13.5px;
+  padding: 16px;
+  text-align: center;
+}
+
+.conversas__thread-header {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--cor-borda);
+  background: #fff;
+}
+
+.conversas__thread-header h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.conversas__thread-telefone {
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.conversas__vincular {
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--cor-borda);
+  background: var(--cor-fundo);
+}
+
+.conversas__mensagens {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.conversas__balao {
+  max-width: min(560px, 78%);
+  border-radius: 12px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  white-space: pre-wrap;
+}
+
+.conversas__balao p {
+  margin: 0;
+}
+
+.conversas__balao-hora {
+  display: block;
+  margin-top: 4px;
+  font-size: 10.5px;
+  color: var(--cor-texto-suave);
+}
+
+.conversas__balao--recebida {
+  align-self: flex-start;
+  background: #fff;
+  border: 1px solid var(--cor-borda);
+}
+
+.conversas__balao--enviada {
+  align-self: flex-end;
+  background: rgba(214, 40, 40, 0.08);
+  border: 1px solid rgba(214, 40, 40, 0.2);
+}
+
+.conversas__caixa-envio {
+  padding: 12px 20px;
+  border-top: 1px solid var(--cor-borda);
+  background: #fff;
+}
+
+.conversas__caixa-envio-linha {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.conversas__caixa-envio-linha textarea {
+  flex: 1;
+  resize: none;
+  min-height: 40px;
+  max-height: 120px;
+  padding: 9px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13.5px;
+}
+
 /* ---------- Responsivo ---------- */
 
 @media (max-width: 720px) {
@@ -998,10 +1219,25 @@ button {
   .side-panel {
     width: 100%;
   }
-}
 
+  .conversas {
+    flex-direction: column;
+    height: calc(100vh - 61px);
+  }
+
+  .conversas__lista {
+    width: 100%;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--cor-borda);
+  }
+
+  .conversas__balao {
+    max-width: 90%;
+  }
+}
 </style>
-<script type="importmap">
+
 {
 "imports": {
 "react": "https://esm.sh/react@19.2.6",
@@ -1013,7 +1249,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) &mdash; Sprint 4 concluída: autenticação Google definitiva, todos os endpoints protegidos por sessão</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>build oficial (React/TS) — Sprint 5 em andamento: módulo de Conversas (WhatsApp) disponível no CRM, aguardando conexão da Evolution API</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
