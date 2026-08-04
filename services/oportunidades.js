@@ -79,6 +79,9 @@ function mapUsuario(raw) {
         papel: raw.papel,
         ativo: Boolean(raw.ativo),
         criadoEm: raw.criado_em,
+        // Sprint 5 "Refinamento de UX — Conversas" (2026-08-04): ver nota em
+        // types/index.ts — o backend já devolvia essa coluna, só faltava mapear.
+        nomeExibicaoWhatsapp: textoOuIndefinido(raw.nome_exibicao_whatsapp),
     };
 }
 // Sprint 1 — listas oficiais (id numérico da planilha vira string, mesma
