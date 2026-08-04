@@ -1,5 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
+import { useAuth } from "../contexts/AuthContext.js";
 import { obterAnotacao, salvarAnotacao } from "../services/anotacoes.js";
 import { listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
 const formatoMoeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -14,6 +15,12 @@ function formatarDataEvento(iso) {
     return formatoDataHora.format(data);
 }
 export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], etapas, etapaAtual, motivosPerda = [], origens = [], timelineEventos, checklistItens, checklistFeito, onFechar, onMoverEtapa, onTransferir, onAtualizarProximaAcao, onToggleChecklist, onAssociarVeiculoEstoque, }) {
+    // BUG corrigido em 2026-08-04 — ver nota em services/estoque.ts:
+    // listEstoque exige sessão válida desde a Sprint 4, mas este componente
+    // nunca lia idToken do contexto de autenticação (a ação estava isenta de
+    // sessão quando foi implementada, na Sprint 3, antes da Sprint 4 trancar
+    // todos os endpoints).
+    const { idToken } = useAuth();
     const [aba, setAba] = useState("detalhes");
     // Sprint 1 — Motivo de perda e Origem agora vêm das listas oficiais
     // (motivosPerda/origens, buscadas do backend real em Pipeline.tsx), não
@@ -150,10 +157,12 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
     const [associandoId, setAssociandoId] = useState(null);
     const [erroAssociar, setErroAssociar] = useState(null);
     useEffect(() => {
+        if (!idToken)
+            return;
         let cancelado = false;
         setEstoqueCarregando(true);
         setEstoqueErro(null);
-        listEstoque()
+        listEstoque(idToken)
             .then((lista) => {
             if (!cancelado)
                 setEstoqueLista(lista);
@@ -169,7 +178,7 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
         return () => {
             cancelado = true;
         };
-    }, [oportunidade.id]);
+    }, [oportunidade.id, idToken]);
     const veiculoEstoqueAoVivo = oportunidade.veiculoEstoqueId
         ? estoqueLista.find((v) => v.id === oportunidade.veiculoEstoqueId)
         : undefined;
