@@ -17,12 +17,20 @@
  */
 
 var ACOES_SEM_SESSAO = {
-  login: true
+  login: true,
+  // Sprint 7 (2026-08-07) -- DEBUG TEMPORÁRIO: usado só para confirmar/
+  // corrigir via URL /dev as 3 colunas novas de próxima ação, porque a
+  // barra "Executar" do editor do Apps Script ficou destravada nesta
+  // sessão. Só devolve nomes de coluna (schema), nenhum dado de cliente --
+  // ver Ciclo 19 na diretriz técnica. REMOVER esta exceção (e a action
+  // abaixo) assim que a verificação terminar.
+  debugSetupSprint7: true
 };
 
 var ACOES_GET = {
   login: function (e) { return autenticar_(e.parameter.idToken); },
   logout: function (e) { return encerrarSessao_(e.parameter.sessionToken); },
+  debugSetupSprint7: configurarColunasSprint7_,
   listOportunidades: listOportunidades_,
   listEtapas: listEtapas_,
   listClientes: listClientes_,
