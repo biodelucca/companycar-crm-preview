@@ -6,6 +6,7 @@ import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
 import { OpportunityCard } from "../components/OpportunityCard.js";
 import { SidePanel } from "../components/SidePanel.js";
+import { formatarDataHoraCurta } from "../utils/proximaAcao.js";
 // Pipeline — Kanban agrupado por etapa.
 //
 // Passo 5-8 do roadmap (2026-08-02, Ciclo 4): movimentação de oportunidades
@@ -467,7 +468,12 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
             const descricaoTipo = dados.tipo === "Outro" ? dados.outroTexto || "Outro" : dados.tipo;
             const responsavelId = dados.responsavelId || oportunidadeAtualizada.responsavelId;
             const nomeResponsavel = usuarios.find((u) => u.id === responsavelId)?.nome ?? "?";
-            registrarEvento(oportunidadeId, `${usuario?.nome ?? "Alguém"} criou: ${descricaoTipo} — ${dados.data} (responsável: ${nomeResponsavel})`, "proxima_acao_criada");
+            // Texto espelha exatamente o que atualizarProximaAcao_ (Oportunidades.gs)
+            // já persistiu de verdade na aba Timeline — ver formatarDataHoraCurta em
+            // utils/proximaAcao.ts. Precisa bater 1:1 porque este evento aparece na
+            // tela antes de qualquer reload; um texto diferente do que está
+            // realmente salvo confundiria quem está lendo a Timeline.
+            registrarEvento(oportunidadeId, `"${usuario?.nome ?? "Alguém"}" criou: ${descricaoTipo} -- ${formatarDataHoraCurta(dados.data)} (responsável: ${nomeResponsavel}).`, "proxima_acao_criada");
             return { ok: true };
         }
         catch (e) {
@@ -493,7 +499,9 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         try {
             const oportunidadeAtualizada = await concluirProximaAcao(oportunidadeId, usuario?.id, idToken);
             setOportunidades((prev) => prev.map((o) => (o.id === oportunidadeId ? oportunidadeAtualizada : o)));
-            registrarEvento(oportunidadeId, `${usuario?.nome ?? "Alguém"} concluiu: ${descricaoAntes}`, "proxima_acao_concluida");
+            // Mesmo racional do evento acima: espelha exatamente o texto que
+            // concluirProximaAcao_ já persistiu na aba Timeline.
+            registrarEvento(oportunidadeId, `"${usuario?.nome ?? "Alguém"}" concluiu: ${descricaoAntes}.`, "proxima_acao_concluida");
             return { ok: true };
         }
         catch (e) {
