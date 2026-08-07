@@ -145,6 +145,8 @@ function mapOportunidade(raw) {
         veiculoEstoquePreco: numeroOuIndefinido(raw.veiculo_estoque_preco),
         veiculoEstoqueImagem: textoOuIndefinido(raw.veiculo_estoque_imagem),
         veiculoEstoqueAssociadoEm: textoOuIndefinido(raw.veiculo_estoque_associado_em),
+        // Sprint 6 (2026-08-07) — ver nota em types/index.ts.
+        dataInicioNegociacao: textoOuIndefinido(raw.data_inicio_negociacao),
     };
 }
 // --- Services ----------------------------------------------------------
@@ -244,5 +246,36 @@ export async function criarOportunidade(dados, idToken) {
     return {
         oportunidade: mapOportunidade(raw.oportunidade),
         cliente: mapCliente(raw.cliente),
+    };
+}
+// --- Sprint 6 "Operação do dia a dia" (2026-08-07) ----------------------
+// Item 1 "Excluir negociação". Exclusão é sempre lógica no backend (ver
+// excluirOportunidade_ em Oportunidades.gs) — este service só dispara a
+// ação; quem remove a oportunidade do estado local do Pipeline (e fecha o
+// painel lateral) é o chamador, depois de confirmar sucesso.
+export async function excluirOportunidade(oportunidadeId, usuarioId, idToken) {
+    await apiClient.request({
+        action: "excluirOportunidade",
+        body: { oportunidadeId, usuarioId },
+        idToken: idToken ?? undefined,
+    });
+}
+export async function editarDadosOportunidade(dados, idToken) {
+    const raw = await apiClient.request({
+        action: "editarDadosOportunidade",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            nome: dados.nome,
+            telefone: dados.telefone,
+            cidade: dados.cidade,
+            origemId: dados.origemId,
+            dataInicioNegociacao: dados.dataInicioNegociacao,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+    return {
+        oportunidade: mapOportunidade(raw.oportunidade),
+        cliente: raw.cliente ? mapCliente(raw.cliente) : null,
     };
 }
