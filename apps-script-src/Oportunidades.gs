@@ -18,6 +18,29 @@ function listOportunidades_() {
   return linhas.filter(function (o) { return !o.excluido_em; });
 }
 
+// Sprint 7 "Próximas Ações" (2026-08-07) — helper de setup, criado para
+// adicionar as 3 colunas novas exigidas por atualizarProximaAcao_ sem
+// precisar editar a planilha célula a célula pela UI do Sheets (diferente
+// da técnica manual usada no Ciclo 18/Sprint 6). Idempotente — só
+// adiciona a coluna se ela ainda não existir, então rodar de novo por
+// engano não duplica nada. Chamado uma única vez manualmente pelo editor
+// do Apps Script (menu "Executar") durante a publicação desta Sprint;
+// fica no código depois por documentação/idempotência, não é chamado por
+// nenhuma action do Roteador.
+function configurarColunasSprint7_() {
+  var aba = getAba_(ABAS.OPORTUNIDADES);
+  var cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+  var novasColunas = ['proxima_acao_tipo', 'proxima_acao_outro_texto', 'proxima_acao_responsavel_id'];
+  novasColunas.forEach(function (nome) {
+    if (cabecalho.indexOf(nome) === -1) {
+      var novaCol = aba.getLastColumn() + 1;
+      aba.getRange(1, novaCol).setValue(nome);
+      cabecalho.push(nome);
+    }
+  });
+  return cabecalho;
+}
+
 function listEtapas_() {
   var etapas = lerAbaComoObjetos_(ABAS.ETAPAS);
   return etapas.sort(function (a, b) { return a.ordem - b.ordem; });
@@ -628,6 +651,189 @@ function editarDadosOportunidade_(oportunidadeId, dados, usuarioId) {
       return String(o.id) === String(oportunidadeId);
     })[0];
     return { oportunidade: oportunidadeFinal, cliente: clienteAtualizado };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Sprint 7 "Próximas Ações" (2026-08-07) — objetivo do CEO: "o sistema deve
+ * responder apenas uma pergunta: qual é a próxima ação para fazer esse
+ * cliente avançar". Substitui o texto livre da Sprint 1 (Passo 7, que nunca
+ * chegou a persistir de verdade — ficava só em memória no Pipeline.tsx) por
+ * um modelo estruturado: TIPO (lista fixa + "Outro" com texto livre), DATA/
+ * HORA e RESPONSÁVEL pela ação (por padrão o responsável da oportunidade,
+ * mas pode ser outra pessoa — ex: Ian cria a ação e atribui à Ester).
+ *
+ * Sugestão do CEO, adotada literalmente: em vez de um campo de descrição
+ * novo, a ação é só {tipo, data, responsável} — detalhes vão em
+ * Observações/Anotações (campo já existente, ver salvarAnotacao_ acima).
+ *
+ * Lista de tipos é fixa e vive tanto aqui (validação) quanto no frontend
+ * (dropdown, ver src/utils/proximaAcao.ts) — mesma decisão consciente de
+ * "sem abinha administrável" já usada para NomeEtapa (união fixa no
+ * TypeScript) — o pedido do CEO foi explícito ("não criar novas etapas",
+ * lista de ações também veio pronta, sem pedido de administração futura).
+ * Se um novo tipo precisar ser adicionado, é uma mudança de código nos dois
+ * lados, não uma linha nova em planilha.
+ *
+ * `proxima_acao` (texto livre, coluna legada da Sprint 1) continua sendo
+ * escrita em paralelo com a descrição resolvida (tipo, ou o texto de
+ * "Outro") — mantém compatibilidade com o card do Kanban
+ * (OpportunityCard.tsx) e qualquer oportunidade antiga que só tenha o
+ * campo legado, sem precisar tocar nesses lugares nesta Sprint.
+ */
+var TIPOS_PROXIMA_ACAO = [
+  'Fazer simulação',
+  'Solicitar documentos',
+  'Solicitar fotos da troca',
+  'Enviar vídeo do veículo',
+  'Confirmar visita',
+  'Retornar ligação',
+  'Fazer follow-up',
+  'Aguardando cliente',
+  'Outro'
+];
+
+function atualizarProximaAcao_(oportunidadeId, dados, usuarioId) {
+  dados = dados || {};
+  if (!oportunidadeId) {
+    throw new Error('oportunidadeId obrigatorio.');
+  }
+  var tipo = dados.proximaAcaoTipo ? String(dados.proximaAcaoTipo).trim() : '';
+  if (!tipo) {
+    throw new Error('Tipo da próxima ação é obrigatório.');
+  }
+  if (TIPOS_PROXIMA_ACAO.indexOf(tipo) === -1) {
+    throw new Error('Tipo de próxima ação inválido: ' + tipo);
+  }
+  var outroTexto = dados.proximaAcaoOutroTexto ? String(dados.proximaAcaoOutroTexto).trim() : '';
+  if (tipo === 'Outro' && !outroTexto) {
+    throw new Error('Descrição obrigatória quando o tipo da próxima ação for "Outro".');
+  }
+  var data = dados.proximaAcaoData ? String(dados.proximaAcaoData).trim() : '';
+  if (!data) {
+    throw new Error('Data e hora da próxima ação são obrigatórias.');
+  }
+
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
+    if (!encontrada) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
+    var cabecalho = encontrada.cabecalho;
+    function setarCampo(nomeCampo, valor) {
+      var col = cabecalho.indexOf(nomeCampo);
+      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
+    }
+    if (cabecalho.indexOf('proxima_acao_tipo') === -1) {
+      throw new Error(
+        'Coluna "proxima_acao_tipo" nao existe na aba Oportunidades -- adicione as colunas da Sprint 7 antes de usar próxima ação.'
+      );
+    }
+
+    var colResp = cabecalho.indexOf('responsavel_id');
+    var responsavelPadraoId = colResp !== -1 ? aba.getRange(encontrada.linha, colResp + 1).getValue() : '';
+    var responsavelId = dados.proximaAcaoResponsavelId || responsavelPadraoId;
+
+    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    var respValido = usuarios.some(function (u) { return String(u.id) === String(responsavelId); });
+    if (!respValido) {
+      throw new Error('Responsável pela próxima ação inválido: ' + responsavelId);
+    }
+
+    var descricaoTipo = tipo === 'Outro' ? outroTexto : tipo;
+
+    setarCampo('proxima_acao_tipo', tipo);
+    setarCampo('proxima_acao_outro_texto', tipo === 'Outro' ? outroTexto : '');
+    setarCampo('proxima_acao_data', data);
+    setarCampo('proxima_acao_responsavel_id', responsavelId);
+    setarCampo('proxima_acao', descricaoTipo);
+    var agora = new Date().toISOString();
+    setarCampo('atualizado_em', agora);
+
+    var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
+    var respNome = nomeUsuarioPorId_(usuarios, responsavelId);
+    registrarEventoTimeline_(
+      oportunidadeId,
+      'proxima_acao_criada',
+      '"' + atorNome + '" criou: ' + descricaoTipo + ' -- ' + formatarDataHoraCurta_(data) + ' (responsável: ' + respNome + ').',
+      usuarioId
+    );
+
+    var oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
+      return String(o.id) === String(oportunidadeId);
+    })[0];
+    return { oportunidade: oportunidadeFinal };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Concluir a próxima ação ativa: registra na Timeline, limpa os campos da
+// oportunidade (item 5 do pedido do CEO: "limpa a Próxima Ação da
+// oportunidade"). Quem pergunta "Deseja criar outra?" e, se sim, chama
+// atualizarProximaAcao_ de novo é o frontend (SidePanel.tsx) -- este
+// endpoint só conclui, não decide o que vem depois.
+function concluirProximaAcao_(oportunidadeId, usuarioId) {
+  if (!oportunidadeId) {
+    throw new Error('oportunidadeId obrigatorio.');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
+    if (!encontrada) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
+    var cabecalho = encontrada.cabecalho;
+    function valorAtual(nomeCampo) {
+      var col = cabecalho.indexOf(nomeCampo);
+      if (col === -1) return '';
+      var v = aba.getRange(encontrada.linha, col + 1).getValue();
+      return v === null || v === undefined ? '' : String(v);
+    }
+    function setarCampo(nomeCampo, valor) {
+      var col = cabecalho.indexOf(nomeCampo);
+      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
+    }
+
+    // Aceita tanto oportunidades já no modelo estruturado desta Sprint
+    // (proxima_acao_tipo) quanto oportunidades antigas que só têm o campo
+    // legado de texto livre (proxima_acao, Sprint 1/3.5) -- ambas podem
+    // ser concluídas.
+    var tipoAtual = valorAtual('proxima_acao_tipo');
+    var outroAtual = valorAtual('proxima_acao_outro_texto');
+    var descricaoTipo = tipoAtual ? (tipoAtual === 'Outro' ? outroAtual : tipoAtual) : valorAtual('proxima_acao');
+    if (!descricaoTipo) {
+      throw new Error('Esta oportunidade não tem uma próxima ação ativa para concluir.');
+    }
+
+    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
+    registrarEventoTimeline_(
+      oportunidadeId,
+      'proxima_acao_concluida',
+      '"' + atorNome + '" concluiu: ' + descricaoTipo + '.',
+      usuarioId
+    );
+
+    setarCampo('proxima_acao_tipo', '');
+    setarCampo('proxima_acao_outro_texto', '');
+    setarCampo('proxima_acao_data', '');
+    setarCampo('proxima_acao_responsavel_id', '');
+    setarCampo('proxima_acao', '');
+    var agora = new Date().toISOString();
+    setarCampo('atualizado_em', agora);
+
+    var oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
+      return String(o.id) === String(oportunidadeId);
+    })[0];
+    return { oportunidade: oportunidadeFinal };
   } finally {
     lock.releaseLock();
   }

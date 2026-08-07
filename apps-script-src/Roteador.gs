@@ -101,6 +101,20 @@ var ACOES_POST = {
   editarDadosOportunidade: function (dados) {
     return editarDadosOportunidade_(dados.oportunidadeId, dados, dados.usuarioId);
   },
+  // Sprint 7 "Próximas Ações" (2026-08-07) -- ver Oportunidades.gs para a
+  // implementação e o racional (tipo estruturado + data/hora + responsável,
+  // substitui o texto livre da Sprint 1 que nunca persistiu de verdade).
+  atualizarProximaAcao: function (dados) {
+    return atualizarProximaAcao_(dados.oportunidadeId, {
+      proximaAcaoTipo: dados.tipo,
+      proximaAcaoOutroTexto: dados.outroTexto,
+      proximaAcaoData: dados.data,
+      proximaAcaoResponsavelId: dados.responsavelId
+    }, dados.usuarioId);
+  },
+  concluirProximaAcao: function (dados) {
+    return concluirProximaAcao_(dados.oportunidadeId, dados.usuarioId);
+  },
   // Sprint 5 (2026-08-04) -- modulo WhatsApp (ver WhatsApp.gs). O 2o
   // parametro (e) so e usado por whatsappWebhook, para ler ?secret= da
   // query string -- ver comentario acima de ACOES_POST_SEM_SESSAO.
