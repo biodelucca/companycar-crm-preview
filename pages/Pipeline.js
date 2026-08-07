@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useState } from "react";
-import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, } from "../services/oportunidades.js";
+import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, atualizarProximaAcao, concluirProximaAcao, } from "../services/oportunidades.js";
 import { associarVeiculoEstoque } from "../services/estoque.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
@@ -44,9 +44,6 @@ function checklistTemplatePorEtapa(etapa) {
     if (etapa.tipo === "ganho")
         return CHECKLIST_VENDA;
     return CHECKLIST_GENERICO;
-}
-function hoje() {
-    return new Date().toISOString().slice(0, 10);
 }
 function novoEventoId() {
     return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -456,11 +453,57 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
             setNnSalvando(false);
         }
     }
-    // Passo 7 — editar próxima ação (continua só em memória — fora do escopo
-    // da Sprint 1).
-    function atualizarProximaAcao(oportunidadeId, texto, data) {
-        setOportunidades((prev) => prev.map((o) => o.id === oportunidadeId ? { ...o, proximaAcao: texto, proximaAcaoData: data, atualizadoEm: hoje() } : o));
-        registrarEvento(oportunidadeId, `Próxima ação atualizada: "${texto}"`, "proxima_acao");
+    // Sprint 7 "Próximas Ações" (2026-08-07) — criar/editar a próxima ação
+    // estruturada (persiste de verdade, ver atualizarProximaAcao_ em
+    // Oportunidades.gs) e concluí-la. Substitui o Passo 7 (Sprint 1), que
+    // nunca persistia — ficava só em memória do navegador. Mesmo padrão
+    // {ok, erro} das demais ações de escrita desta tela.
+    async function salvarProximaAcao(oportunidadeId, dados) {
+        setSalvandoAcao(true);
+        setAcaoErro(null);
+        try {
+            const oportunidadeAtualizada = await atualizarProximaAcao({ oportunidadeId, tipo: dados.tipo, outroTexto: dados.outroTexto, data: dados.data, responsavelId: dados.responsavelId, usuarioId: usuario?.id }, idToken);
+            setOportunidades((prev) => prev.map((o) => (o.id === oportunidadeId ? oportunidadeAtualizada : o)));
+            const descricaoTipo = dados.tipo === "Outro" ? dados.outroTexto || "Outro" : dados.tipo;
+            const responsavelId = dados.responsavelId || oportunidadeAtualizada.responsavelId;
+            const nomeResponsavel = usuarios.find((u) => u.id === responsavelId)?.nome ?? "?";
+            registrarEvento(oportunidadeId, `${usuario?.nome ?? "Alguém"} criou: ${descricaoTipo} — ${dados.data} (responsável: ${nomeResponsavel})`, "proxima_acao_criada");
+            return { ok: true };
+        }
+        catch (e) {
+            const mensagem = e instanceof Error ? e.message : "Não foi possível salvar a próxima ação agora.";
+            setAcaoErro(mensagem);
+            return { ok: false, erro: mensagem };
+        }
+        finally {
+            setSalvandoAcao(false);
+        }
+    }
+    async function concluirAcao(oportunidadeId) {
+        const oportunidadeAtual = oportunidades.find((o) => o.id === oportunidadeId);
+        const descricaoAntes = oportunidadeAtual
+            ? oportunidadeAtual.proximaAcaoTipo
+                ? oportunidadeAtual.proximaAcaoTipo === "Outro"
+                    ? oportunidadeAtual.proximaAcaoOutroTexto || "Outro"
+                    : oportunidadeAtual.proximaAcaoTipo
+                : oportunidadeAtual.proximaAcao
+            : "";
+        setSalvandoAcao(true);
+        setAcaoErro(null);
+        try {
+            const oportunidadeAtualizada = await concluirProximaAcao(oportunidadeId, usuario?.id, idToken);
+            setOportunidades((prev) => prev.map((o) => (o.id === oportunidadeId ? oportunidadeAtualizada : o)));
+            registrarEvento(oportunidadeId, `${usuario?.nome ?? "Alguém"} concluiu: ${descricaoAntes}`, "proxima_acao_concluida");
+            return { ok: true };
+        }
+        catch (e) {
+            const mensagem = e instanceof Error ? e.message : "Não foi possível concluir a ação agora.";
+            setAcaoErro(mensagem);
+            return { ok: false, erro: mensagem };
+        }
+        finally {
+            setSalvandoAcao(false);
+        }
     }
     // Passo 8 — checklist da etapa (interativo, itens-placeholder, continua
     // só em memória — fora do escopo da Sprint 1).
@@ -562,7 +605,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                     const eventosDaOportunidade = timelineEventos
                         .filter((ev) => ev.oportunidadeId === oportunidadeSelecionada.id)
                         .sort((a, b) => (a.dataHora < b.dataHora ? 1 : -1));
-                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onAtualizarProximaAcao: (texto, data) => atualizarProximaAcao(oportunidadeSelecionada.id, texto, data), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
+                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
                 })(), dropPendente && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => setNnTelefone(e.target.value), placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
                                                     .filter((u) => u.ativo)
                                                     .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Cidade" }), _jsx("input", { type: "text", value: nnCidade, onChange: (e) => setNnCidade(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Ve\u00EDculo de interesse" }), _jsx("input", { type: "text", value: nnVeiculoInteresse, onChange: (e) => setNnVeiculoInteresse(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Anota\u00E7\u00F5es iniciais" }), _jsx("textarea", { value: nnAnotacoes, onChange: (e) => setNnAnotacoes(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: nnProximaAcao, onChange: (e) => setNnProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data da pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "date", value: nnProximaAcaoData, onChange: (e) => setNnProximaAcaoData(e.target.value) })] }), nnErro && _jsx("p", { className: "side-panel__aviso", children: nnErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: salvarNovaNegociacao, disabled: nnSalvando, children: nnSalvando ? "Salvando…" : "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: fecharNovaNegociacao, disabled: nnSalvando, children: "Cancelar" })] })] })] }) }))] }));
