@@ -802,6 +802,33 @@ button {
   color: var(--cor-primaria);
 }
 
+/* Sprint 6 "Operação do dia a dia" (2026-08-07) — item 1 "Excluir
+   negociação": botão de ação destrutiva. Como --cor-primaria já é
+   vermelha (identidade da marca), usa um vermelho mais escuro e sólido
+   para não se confundir com os botões primários normais do painel. */
+.side-panel__botao-perigo {
+  background: #fff;
+  color: #b91c1c;
+  border: 1px solid #b91c1c;
+  border-radius: 8px;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.side-panel__botao-perigo:hover {
+  background: #b91c1c;
+  color: #fff;
+}
+
+.side-panel__botao-perigo:disabled {
+  background: var(--cor-borda);
+  color: var(--cor-texto-suave);
+  border-color: var(--cor-borda);
+  cursor: not-allowed;
+}
+
 /* ---------- Sprint 3: veículo do estoque (busca / associação) ---------- */
 
 .side-panel__veiculo-estoque {
@@ -1482,7 +1509,7 @@ button {
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-<div id="banner-preview">Companycar CRM &middot; <strong>Sprint 5 &mdash; WhatsApp validado ponta a ponta; módulo Conversas refinado (busca, não lidas, atualização automática, ações rápidas, painel único no celular)</strong></div>
+<div id="banner-preview">Companycar CRM &middot; <strong>Sprint 6 &mdash; Operação do dia a dia: excluir negociação, sessão mais longa, origem "Indicação", editar dados do cliente, editar data de início, cliente no Dashboard, nome de exibição</strong></div>
 <div id="root"></div>
 <script type="module" src="./main.js"></script>
 </body>
