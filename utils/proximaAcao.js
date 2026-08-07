@@ -29,3 +29,18 @@ export function descricaoProximaAcao(o) {
     }
     return o.proximaAcao || "";
 }
+// Espelha formatarDataHoraCurta_ (Utils.gs) no frontend: formata o valor
+// "YYYY-MM-DDTHH:mm" do <input type="datetime-local"> como "DD/MM HH:mm".
+// Usado só para o evento otimista que Pipeline.tsx insere na Timeline local
+// assim que a próxima ação é criada, antes de qualquer reload da página —
+// sem isso o texto que aparece na tela (data ISO crua) diverge do texto que
+// já foi persistido de verdade na aba Timeline (formatado pelo backend).
+// Mantida como cópia deliberada, não importada do backend — mesmo padrão de
+// TIPOS_PROXIMA_ACAO acima (duas fontes de verdade, sincronizadas à mão).
+export function formatarDataHoraCurta(valor) {
+    const s = String(valor || "");
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (!m)
+        return s;
+    return `${m[3]}/${m[2]} ${m[4]}:${m[5]}`;
+}
