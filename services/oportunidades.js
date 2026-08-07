@@ -147,6 +147,10 @@ function mapOportunidade(raw) {
         veiculoEstoqueAssociadoEm: textoOuIndefinido(raw.veiculo_estoque_associado_em),
         // Sprint 6 (2026-08-07) — ver nota em types/index.ts.
         dataInicioNegociacao: textoOuIndefinido(raw.data_inicio_negociacao),
+        // Sprint 7 "Próximas Ações" (2026-08-07) — ver nota em types/index.ts.
+        proximaAcaoTipo: textoOuIndefinido(raw.proxima_acao_tipo),
+        proximaAcaoOutroTexto: textoOuIndefinido(raw.proxima_acao_outro_texto),
+        proximaAcaoResponsavelId: textoOuIndefinido(raw.proxima_acao_responsavel_id),
     };
 }
 // --- Services ----------------------------------------------------------
@@ -192,10 +196,9 @@ export async function listOrigens(idToken) {
     const raw = await apiClient.request({ action: "listOrigens", idToken });
     return raw.map(mapOrigem);
 }
-// Timeline persistida (Timeline.gs) — por ora só eventos de mudança de
-// etapa e transferência são gravados de verdade (ver Oportunidades.gs);
-// próxima ação e checklist continuam só em memória (fora do escopo desta
-// Sprint).
+// Timeline persistida (Timeline.gs). Desde a Sprint 7, próxima ação
+// (criar/concluir) também grava eventos reais aqui — checklist continua
+// só em memória (fora de escopo, sem pedido do CEO até agora).
 export async function listTimeline(idToken) {
     if (USE_MOCK)
         return comAtraso([]);
@@ -278,4 +281,27 @@ export async function editarDadosOportunidade(dados, idToken) {
         oportunidade: mapOportunidade(raw.oportunidade),
         cliente: raw.cliente ? mapCliente(raw.cliente) : null,
     };
+}
+export async function atualizarProximaAcao(dados, idToken) {
+    const raw = await apiClient.request({
+        action: "atualizarProximaAcao",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            tipo: dados.tipo,
+            outroTexto: dados.outroTexto,
+            data: dados.data,
+            responsavelId: dados.responsavelId,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+    return mapOportunidade(raw.oportunidade);
+}
+export async function concluirProximaAcao(oportunidadeId, usuarioId, idToken) {
+    const raw = await apiClient.request({
+        action: "concluirProximaAcao",
+        body: { oportunidadeId, usuarioId },
+        idToken: idToken ?? undefined,
+    });
+    return mapOportunidade(raw.oportunidade);
 }
