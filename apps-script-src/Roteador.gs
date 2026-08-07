@@ -17,63 +17,12 @@
  */
 
 var ACOES_SEM_SESSAO = {
-  login: true,
-  // Sprint 7 (2026-08-07) -- DEBUG TEMPORÁRIO: usado só para confirmar/
-  // corrigir via URL /dev as 3 colunas novas de próxima ação, porque a
-  // barra "Executar" do editor do Apps Script ficou destravada nesta
-  // sessão. Só devolve nomes de coluna (schema), nenhum dado de cliente --
-  // ver Ciclo 19 na diretriz técnica. REMOVER esta exceção (e as actions
-  // abaixo) assim que a verificação terminar.
-  debugSetupSprint7: true,
-  debugDumpArea: true,
-  debugFixDataInicio: true
+  login: true
 };
 
 var ACOES_GET = {
   login: function (e) { return autenticar_(e.parameter.idToken); },
   logout: function (e) { return encerrarSessao_(e.parameter.sessionToken); },
-  debugSetupSprint7: configurarColunasSprint7_,
-  // Sprint 7 (2026-08-07) -- DEBUG TEMPORÁRIO: le linhas 1-6, colunas A-AI
-  // da aba Oportunidades para confirmar visualmente o estado real do
-  // cabecalho e de algumas linhas de dado, sem depender da UI instavel do
-  // Google Sheets. Nao expor dado de cliente alem do estritamente
-  // necessario para diagnostico -- ver Ciclo 19 na diretriz tecnica.
-  debugDumpArea: function () {
-    var aba = getAba_(ABAS.OPORTUNIDADES);
-    var linhas = Math.min(6, aba.getLastRow());
-    var colunas = aba.getLastColumn();
-    return aba.getRange(1, 1, linhas, colunas).getValues();
-  },
-  // Sprint 7 (2026-08-07) -- DEBUG TEMPORÁRIO: corrige o cabecalho da aba
-  // Oportunidades apos um incidente de edicao manual (ver Ciclo 19) que
-  // sobrescreveu o cabecalho "data_inicio_negociacao" (Sprint 6) com
-  // "proxima_acao_responsavel_id" (Sprint 7), deslocando as 3 colunas
-  // novas uma posicao para a esquerda do que deveriam estar. So atua se
-  // encontrar exatamente esse padrao (idempotente/defensivo -- nao altera
-  // nada fora desse caso exato): renomeia a celula de volta para
-  // "data_inicio_negociacao" (os dados da coluna, nas linhas abaixo, nunca
-  // foram tocados por essa edicao -- so o cabecalho da linha 1 foi
-  // alterado) e acrescenta uma nova coluna no final com o cabecalho
-  // "proxima_acao_responsavel_id".
-  debugFixDataInicio: function () {
-    var aba = getAba_(ABAS.OPORTUNIDADES);
-    var totalColunas = aba.getLastColumn();
-    var cabecalho = aba.getRange(1, 1, 1, totalColunas).getValues()[0];
-    var jaTemDataInicio = cabecalho.indexOf('data_inicio_negociacao') !== -1;
-    var posAC = cabecalho.indexOf('proxima_acao_responsavel_id'); // 0-based
-    var posAD = cabecalho.indexOf('proxima_acao_tipo');
-    var posAE = cabecalho.indexOf('proxima_acao_outro_texto');
-    if (jaTemDataInicio) {
-      return { acao: 'nenhuma', motivo: 'data_inicio_negociacao ja existe no cabecalho -- nada a corrigir.', cabecalhoAntes: cabecalho };
-    }
-    if (posAC === -1 || posAD !== posAC + 1 || posAE !== posAC + 2) {
-      return { acao: 'nenhuma', motivo: 'Padrao esperado (proxima_acao_responsavel_id, tipo, outro_texto em 3 colunas seguidas) nao encontrado -- nada alterado por seguranca.', cabecalhoAntes: cabecalho };
-    }
-    aba.getRange(1, posAC + 1).setValue('data_inicio_negociacao');
-    aba.getRange(1, totalColunas + 1).setValue('proxima_acao_responsavel_id');
-    var cabecalhoDepois = aba.getRange(1, 1, 1, totalColunas + 1).getValues()[0];
-    return { acao: 'corrigido', colunaDataInicio1based: posAC + 1, colunaResponsavelId1based: totalColunas + 1, cabecalhoDepois: cabecalhoDepois };
-  },
   listOportunidades: listOportunidades_,
   listEtapas: listEtapas_,
   listClientes: listClientes_,

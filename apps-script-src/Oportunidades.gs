@@ -18,15 +18,15 @@ function listOportunidades_() {
   return linhas.filter(function (o) { return !o.excluido_em; });
 }
 
-// Sprint 7 "Próximas Ações" (2026-08-07) — helper de setup, criado para
-// adicionar as 3 colunas novas exigidas por atualizarProximaAcao_ sem
-// precisar editar a planilha célula a célula pela UI do Sheets (diferente
-// da técnica manual usada no Ciclo 18/Sprint 6). Idempotente — só
-// adiciona a coluna se ela ainda não existir, então rodar de novo por
-// engano não duplica nada. Chamado uma única vez manualmente pelo editor
-// do Apps Script (menu "Executar") durante a publicação desta Sprint;
-// fica no código depois por documentação/idempotência, não é chamado por
-// nenhuma action do Roteador.
+// Sprint 7 "Próximas Ações" (2026-08-07) — migração de schema: adiciona as
+// colunas novas exigidas por atualizarProximaAcao_ na aba Oportunidades.
+// Idempotente — só adiciona uma coluna se ela ainda não existir, então
+// rodar de novo por engano não duplica nada. Executada uma única vez,
+// temporariamente exposta como action sem sessão no Roteador.gs e chamada
+// via URL de teste do Apps Script (menu "Executar" do editor ficou
+// destravado nesta sessão e não pôde ser usado). Fica no código depois
+// por documentação/idempotência, não é chamada por nenhuma action do
+// Roteador (ver Ciclo 19 na diretriz técnica para o histórico completo).
 function configurarColunasSprint7_() {
   var aba = getAba_(ABAS.OPORTUNIDADES);
   var cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
@@ -39,6 +39,47 @@ function configurarColunasSprint7_() {
     }
   });
   return cabecalho;
+}
+
+// Sprint 7 "Próximas Ações" (2026-08-07) — migração corretiva: uma edição
+// manual pela UI do Google Sheets (tentando adicionar as 3 colunas acima
+// célula a célula, antes de configurarColunasSprint7_ existir) sobrescreveu
+// o cabeçalho "data_inicio_negociacao" (coluna da Sprint 6) com
+// "proxima_acao_responsavel_id", deslocando a numeração das colunas novas.
+// Esta função corrige isso -- ver Ciclo 19 na diretriz técnica para o
+// histórico completo do incidente e a decisão que resultou dele: a partir
+// da Sprint 7, nenhuma alteração estrutural da planilha é feita
+// manualmente pela UI do Sheets; toda migração de schema é uma função
+// idempotente como esta, versionada junto com o código.
+//
+// Idempotente e defensiva: só altera algo se encontrar exatamente o padrão
+// exato do incidente (as 3 colunas da Sprint 7 ocupando 3 posições
+// consecutivas a partir de onde "data_inicio_negociacao" deveria estar, e
+// "data_inicio_negociacao" ausente do cabeçalho); qualquer outro estado
+// não é tocado. Só escreve na linha 1 (cabeçalho) -- nunca lê nem altera
+// linhas de dado, então nenhuma oportunidade é afetada. Executada uma
+// única vez (2026-08-07) via URL de teste do Apps Script; resultado
+// confirmado e registrado no Ciclo 19. Mantida no código por
+// documentação/idempotência, não é chamada por nenhuma action do
+// Roteador.
+function migrarSprint7CorrigirCabecalhoDataInicio_() {
+  var aba = getAba_(ABAS.OPORTUNIDADES);
+  var totalColunas = aba.getLastColumn();
+  var cabecalho = aba.getRange(1, 1, 1, totalColunas).getValues()[0];
+  var jaTemDataInicio = cabecalho.indexOf('data_inicio_negociacao') !== -1;
+  var posAC = cabecalho.indexOf('proxima_acao_responsavel_id'); // 0-based
+  var posAD = cabecalho.indexOf('proxima_acao_tipo');
+  var posAE = cabecalho.indexOf('proxima_acao_outro_texto');
+  if (jaTemDataInicio) {
+    return { acao: 'nenhuma', motivo: 'data_inicio_negociacao ja existe no cabecalho -- nada a corrigir.', cabecalhoAntes: cabecalho };
+  }
+  if (posAC === -1 || posAD !== posAC + 1 || posAE !== posAC + 2) {
+    return { acao: 'nenhuma', motivo: 'Padrao esperado (proxima_acao_responsavel_id, tipo, outro_texto em 3 colunas seguidas) nao encontrado -- nada alterado por seguranca.', cabecalhoAntes: cabecalho };
+  }
+  aba.getRange(1, posAC + 1).setValue('data_inicio_negociacao');
+  aba.getRange(1, totalColunas + 1).setValue('proxima_acao_responsavel_id');
+  var cabecalhoDepois = aba.getRange(1, 1, 1, totalColunas + 1).getValues()[0];
+  return { acao: 'corrigido', colunaDataInicio1based: posAC + 1, colunaResponsavelId1based: totalColunas + 1, cabecalhoDepois: cabecalhoDepois };
 }
 
 function listEtapas_() {
