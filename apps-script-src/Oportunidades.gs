@@ -13,9 +13,27 @@
 // do schema), o filtro simplesmente não encontra nada marcado e todas as
 // linhas continuam aparecendo — mesmo padrão defensivo de coluna opcional
 // já usado em setarCampo/veiculo_estoque_*.
-function listOportunidades_() {
-  var linhas = lerAbaComoObjetos_(ABAS.OPORTUNIDADES);
-  return linhas.filter(function (o) { return !o.excluido_em; });
+// Hotfix "Visibilidade por Usuário" (2026-08-10): a causa raiz da
+// exposição corrigida aqui era simples -- esta função sempre devolveu a
+// aba inteira para qualquer usuário autenticado, porque nada no Roteador
+// sabia (ou perguntava) qual era o papel de quem estava pedindo. Agora
+// exige o usuário autenticado (resolvido pelo Roteador a partir só da
+// sessão, nunca de um parâmetro da requisição -- ver obterUsuarioAutenticado_
+// em Auth.gs) e aplica a regra de negócio pedida pelo CEO: Gerente/
+// Administrador continuam vendo tudo; SDR/Closer veem só onde são
+// responsavel_id. `usuarioAutenticado` é obrigatório por segurança -- não
+// existe caminho de leitura de Oportunidades sem uma sessão válida desde a
+// Sprint 4, então um chamador que não o fornece é, por definição, um erro
+// de programação (falha fechada em vez de arriscar devolver tudo).
+function listOportunidades_(usuarioAutenticado) {
+  if (!usuarioAutenticado) {
+    throw new Error('listOportunidades_ requer usuarioAutenticado (contexto de sessao) por seguranca.');
+  }
+  var linhas = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) { return !o.excluido_em; });
+  if (usuarioTemVisaoCompleta_(usuarioAutenticado)) {
+    return linhas;
+  }
+  return linhas.filter(function (o) { return String(o.responsavel_id) === String(usuarioAutenticado.id); });
 }
 
 // Sprint 7 "Próximas Ações" (2026-08-07) — migração de schema: adiciona as
@@ -142,14 +160,33 @@ function encontrarLinhaOportunidade_(aba, oportunidadeId) {
   return null;
 }
 
-function obterAnotacao_(oportunidadeId) {
+// Hotfix "Visibilidade por Usuário" (2026-08-10): este endpoint recebe o
+// id da oportunidade diretamente na query string -- exatamente o tipo de
+// chamada que o CEO pediu para testar ("manipulando a requisição"). Antes,
+// qualquer usuário autenticado (qualquer papel) conseguia ler a anotação
+// de QUALQUER oportunidade só sabendo o id, mesmo sem ela aparecer na
+// listagem dele. Agora, para SDR/Closer, confere que a oportunidade
+// encontrada é mesmo da carteira dele antes de devolver o texto -- mesma
+// regra de listOportunidades_, aplicada aqui porque esta função busca por
+// id direto, não por listagem.
+function obterAnotacao_(oportunidadeId, usuarioAutenticado) {
   if (!oportunidadeId) {
     throw new Error('oportunidadeId obrigatorio.');
+  }
+  if (!usuarioAutenticado) {
+    throw new Error('obterAnotacao_ requer usuarioAutenticado (contexto de sessao) por seguranca.');
   }
   var aba = getAba_(ABAS.OPORTUNIDADES);
   var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
   if (!encontrada) {
     throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+  }
+  if (!usuarioTemVisaoCompleta_(usuarioAutenticado)) {
+    var colResponsavel = encontrada.cabecalho.indexOf('responsavel_id');
+    var responsavelDaOportunidade = colResponsavel !== -1 ? encontrada.linhaValores[colResponsavel] : null;
+    if (String(responsavelDaOportunidade) !== String(usuarioAutenticado.id)) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
   }
   var colAnotacoes = encontrada.cabecalho.indexOf('anotacoes');
   if (colAnotacoes === -1) {

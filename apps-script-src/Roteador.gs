@@ -20,20 +20,37 @@ var ACOES_SEM_SESSAO = {
   login: true
 };
 
+// Hotfix "Visibilidade por Usuário" (2026-08-10): as quatro leituras que
+// expõem dado de oportunidade (diretamente ou por associação -- cliente e
+// timeline pertencem a uma oportunidade) agora recebem o usuário
+// autenticado (ver obterUsuarioAutenticado_ em Auth.gs) e aplicam a regra
+// de visibilidade DENTRO da própria função de entidade (Oportunidades.gs/
+// Clientes.gs/Timeline.gs) -- nunca aqui no Roteador, que só repassa o
+// contexto. listEtapas/listUsuarios/listMotivosPerda/listOrigens/
+// listEstoque continuam globais (tabelas de referência ou catálogo, sem
+// dono/responsável -- nenhuma delas expõe dado de oportunidade de outra
+// pessoa); listUsuarios em particular PRECISA continuar visível a todos os
+// papéis, senão os fluxos existentes de transferência de responsável e
+// atribuição de próxima ação quebram (fora do escopo deste hotfix mudar
+// isso -- ver diretriz técnica).
 var ACOES_GET = {
   login: function (e) { return autenticar_(e.parameter.idToken); },
   logout: function (e) { return encerrarSessao_(e.parameter.sessionToken); },
-  listOportunidades: listOportunidades_,
+  listOportunidades: function (e, usuarioAutenticado) { return listOportunidades_(usuarioAutenticado); },
   listEtapas: listEtapas_,
-  listClientes: listClientes_,
+  listClientes: function (e, usuarioAutenticado) { return listClientes_(usuarioAutenticado); },
   listUsuarios: listUsuarios_,
   listMotivosPerda: listMotivosPerda_,
   listOrigens: listOrigens_,
-  listTimeline: listTimeline_,
-  obterAnotacao: function (e) { return obterAnotacao_(e.parameter.oportunidadeId); },
+  listTimeline: function (e, usuarioAutenticado) { return listTimeline_(usuarioAutenticado); },
+  obterAnotacao: function (e, usuarioAutenticado) { return obterAnotacao_(e.parameter.oportunidadeId, usuarioAutenticado); },
   listEstoque: listEstoque_,
   // Sprint 5 (2026-08-04) -- modulo WhatsApp (ver WhatsApp.gs), protegidas
-  // por sessao valida como qualquer acao desde a Sprint 4.
+  // por sessao valida como qualquer acao desde a Sprint 4. Acesso a
+  // Conversas já é restrito ao Gerente (Owner) inteiramente por gate de
+  // exibição no frontend desde o Ciclo 17 -- regra mais estrita que a
+  // deste hotfix (SDR/Closer não chegam nem a montar a tela), então não
+  // precisou de nenhuma mudança aqui.
   listConversas: listConversas_,
   listMensagensConversa: function (e) { return listMensagensConversa_(e.parameter.oportunidadeId, e.parameter.telefone); }
 };
@@ -47,10 +64,17 @@ function doGet(e) {
   }
 
   try {
+    // Hotfix "Visibilidade por Usuário" (2026-08-10): antes, apenas
+    // confirmava que a sessão existia (exigirSessaoValida_) e descartava o
+    // resultado -- nenhum handler sabia quem estava perguntando. Agora
+    // resolve o usuário autenticado completo (id + papel) uma única vez
+    // aqui, a partir só do sessionToken, e repassa para o handler decidir
+    // o que mostrar. Nunca a partir de um parâmetro da requisição.
+    var usuarioAutenticado = null;
     if (!ACOES_SEM_SESSAO[action]) {
-      exigirSessaoValida_(e.parameter.sessionToken);
+      usuarioAutenticado = obterUsuarioAutenticado_(e.parameter.sessionToken);
     }
-    return respostaOk_(handler(e));
+    return respostaOk_(handler(e, usuarioAutenticado));
   } catch (erro) {
     return respostaErro_(erro.message || erro);
   }
@@ -150,10 +174,21 @@ function doPost(e) {
   }
 
   try {
+    // Hotfix "Visibilidade por Usuário" (2026-08-10): mesma resolução de
+    // usuário autenticado do doGet acima, por consistência -- nenhum
+    // endpoint de escrita foi restringido por papel nesta correção (fora
+    // de escopo, ver diretriz técnica: "preservar transferência" e "não
+    // ampliar/restringir permissões"), mas o contexto já fica disponível
+    // (3o parâmetro do handler) para quando isso for necessário, sem
+    // precisar mexer de novo no Roteador. Como efeito colateral, também
+    // endurece a validação de sessão aqui: uma sessão cujo usuário foi
+    // removido da aba Usuarios depois do login agora é tratada como
+    // sessão expirada, igual ao doGet, em vez de continuar aceita.
+    var usuarioAutenticado = null;
     if (!ACOES_POST_SEM_SESSAO[action]) {
-      exigirSessaoValida_(dados.sessionToken || dados.idToken);
+      usuarioAutenticado = obterUsuarioAutenticado_(dados.sessionToken || dados.idToken);
     }
-    return respostaOk_(handler(dados, e));
+    return respostaOk_(handler(dados, e, usuarioAutenticado));
   } catch (erro) {
     return respostaErro_(erro.message || erro);
   }

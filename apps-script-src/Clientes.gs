@@ -11,8 +11,28 @@
  * — fora do escopo desta Sprint por instrução explícita do CEO.
  */
 
-function listClientes_() {
-  return lerAbaComoObjetos_(ABAS.CLIENTES);
+// Hotfix "Visibilidade por Usuário" (2026-08-10): Cliente não tem
+// responsavel_id próprio (quem é "dono" de um lead é a Oportunidade, não a
+// pessoa) -- por isso a regra aqui é derivada, não direta: Gerente/
+// Administrador continuam vendo a base inteira de clientes; SDR/Closer só
+// veem os clientes que aparecem em pelo menos uma oportunidade da própria
+// carteira (reaproveita listOportunidades_, que já aplica a mesma regra --
+// ver Oportunidades.gs). Sem isso, mesmo depois de esconder as
+// oportunidades de outros responsáveis, o nome/telefone/cidade de todos os
+// clientes da revenda continuaria vazando para qualquer usuário comum.
+function listClientes_(usuarioAutenticado) {
+  if (!usuarioAutenticado) {
+    throw new Error('listClientes_ requer usuarioAutenticado (contexto de sessao) por seguranca.');
+  }
+  var clientes = lerAbaComoObjetos_(ABAS.CLIENTES);
+  if (usuarioTemVisaoCompleta_(usuarioAutenticado)) {
+    return clientes;
+  }
+  var idsClientesVisiveis = {};
+  listOportunidades_(usuarioAutenticado).forEach(function (o) {
+    idsClientesVisiveis[String(o.cliente_id)] = true;
+  });
+  return clientes.filter(function (c) { return !!idsClientesVisiveis[String(c.id)]; });
 }
 
 // Telefone é comparado só pelos dígitos — evita falso-negativo de dedup por

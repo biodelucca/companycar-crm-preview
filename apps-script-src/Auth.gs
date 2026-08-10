@@ -152,3 +152,52 @@ function encerrarSessao_(sessionToken) {
   }
   return { encerrado: true };
 }
+
+/**
+ * Hotfix "Visibilidade por Usuário" (2026-08-10) — antes desta correção, a
+ * sessão só era usada para confirmar "existe alguém logado" (exigirSessaoValida_
+ * acima); nenhuma função de leitura sabia QUEM era esse alguém nem qual o
+ * papel dele, então não existia como aplicar nenhuma regra de visibilidade
+ * por responsável — listOportunidades_/listClientes_/listTimeline_ sempre
+ * devolviam a base inteira para qualquer usuário autenticado, independente
+ * do papel. Esta é a peça que faltava: resolve o usuário completo (com
+ * papel) a partir do token de sessão, para virar a ÚNICA fonte de verdade
+ * de autorização usada pelo Roteador.gs a partir de agora.
+ *
+ * Papéis com visão completa da operação — mesmos quatro perfis oficiais
+ * definidos no Ciclo 13 (Gerente (Owner), Administrador, SDR, Closer);
+ * só os dois primeiros veem tudo. Único ponto de verdade para essa
+ * distinção — reutilizado por Oportunidades.gs/Clientes.gs/Timeline.gs, e
+ * pensado para ser reaproveitado sem mudança pelos relatórios da Sprint 9
+ * (que também vão precisar da mesma regra "operacional vê a própria
+ * operação, Gerente/Administrador veem consolidado").
+ */
+var PAPEIS_VISAO_COMPLETA_ = {
+  'Gerente (Owner)': true,
+  'Administrador': true
+};
+
+function usuarioTemVisaoCompleta_(usuarioAutenticado) {
+  return !!(usuarioAutenticado && PAPEIS_VISAO_COMPLETA_[usuarioAutenticado.papel]);
+}
+
+// Resolve o usuário autenticado completo (id/nome/email/papel/ativo) a
+// partir do token de sessão — nunca a partir de um campo `usuarioId`
+// enviado no corpo/query da requisição (esse campo, quando existe em
+// endpoints de escrita, serve só para atribuir autoria num texto de
+// Timeline; nunca foi e continua não sendo usado para autorizar acesso).
+// `listUsuarios_()` já é cacheada (Usuarios.gs, 5min) — este lookup não
+// adiciona uma leitura de planilha nova na maioria das chamadas.
+function obterUsuarioAutenticado_(sessionToken) {
+  var sessao = exigirSessaoValida_(sessionToken); // {email, id} vindo do CacheService
+  var usuarios = listUsuarios_();
+  for (var i = 0; i < usuarios.length; i++) {
+    if (String(usuarios[i].id) === String(sessao.id)) {
+      return usuarios[i];
+    }
+  }
+  // Sessão válida no cache, mas o usuário não existe mais na aba Usuarios
+  // (removido depois do login) — trata como sessão inválida, mesmo erro
+  // que o frontend já sabe interceptar para forçar novo login.
+  throw new Error('SESSAO_EXPIRADA');
+}
