@@ -24,6 +24,67 @@ function lerAbaComoObjetos_(nomeAba) {
     });
 }
 
+// Sprint 8 "Performance e Estabilidade" (2026-08-10) — Etapas/Origens/
+// MotivosPerda/Usuarios são tabelas de referência pequenas e raramente
+// alteradas (Etapas nunca muda pelo app; Origens/MotivosPerda só crescem
+// por edição direta e pontual na planilha, ex: "Indicação" no Ciclo 18;
+// Usuarios só muda quando alguém entra/sai do time), mas eram lidas do
+// zero em quase toda requisição -- inclusive várias vezes dentro da MESMA
+// requisição, já que várias funções de escrita consultam Usuarios/Etapas/
+// Origens internamente (ex: criarOportunidade_ lê Origens, Usuarios e
+// Etapas). CacheService (5min) resolve isso sem exigir nenhuma
+// invalidação manual: nenhuma ação do app escreve nessas 4 abas, então um
+// TTL curto já garante que uma edição manual pontual apareça em minutos,
+// sem risco de servir dado desatualizado por muito tempo.
+var TTL_CACHE_REFERENCIA_SEGUNDOS = 300;
+
+function lerAbaComoObjetosCacheada_(nomeAba) {
+  var cache = CacheService.getScriptCache();
+  var chave = 'aba_' + nomeAba;
+  var cacheado = cache.get(chave);
+  if (cacheado) {
+    try {
+      return JSON.parse(cacheado);
+    } catch (erroParse) {
+      // Cache corrompido/formato inesperado -- ignora e recalcula abaixo,
+      // nunca deixa isso quebrar a leitura.
+    }
+  }
+  var dados = lerAbaComoObjetos_(nomeAba);
+  try {
+    cache.put(chave, JSON.stringify(dados), TTL_CACHE_REFERENCIA_SEGUNDOS);
+  } catch (erroCache) {
+    // CacheService tem limite de 100KB por chave -- se a aba um dia
+    // crescer além disso, segue sem cache em vez de quebrar a leitura.
+  }
+  return dados;
+}
+
+// Sprint 8 "Performance e Estabilidade" (2026-08-10) — grava vários campos
+// de UMA linha de uma vez (uma única chamada setValues) e devolve o
+// objeto já atualizado, sem reler a aba inteira depois de escrever.
+// `linhaValores` é o array de valores atuais da linha (mesmo formato de
+// aba.getRange(linha,1,1,cabecalho.length).getValues()[0] -- já disponível
+// via encontrarLinhaOportunidade_, que lê a linha como parte da própria
+// busca); `campos` é um objeto {nomeCampo: novoValor} só com os campos que
+// de fato mudam. Substitui o padrão anterior de N chamadas setValue (uma
+// API call cada) seguidas, em alguns endpoints, de uma releitura completa
+// da aba só para montar o objeto de retorno -- mesmo dado gravado e
+// devolvido, muito menos chamadas de API por escrita.
+function gravarCamposLinha_(aba, linha, cabecalho, linhaValores, campos) {
+  var linhaAtualizada = linhaValores.slice();
+  Object.keys(campos).forEach(function (nomeCampo) {
+    var col = cabecalho.indexOf(nomeCampo);
+    if (col !== -1) linhaAtualizada[col] = campos[nomeCampo];
+  });
+  aba.getRange(linha, 1, 1, cabecalho.length).setValues([linhaAtualizada]);
+  var objeto = {};
+  cabecalho.forEach(function (chave, i) {
+    objeto[chave] = linhaAtualizada[i];
+  });
+  return objeto;
+}
+
 function respostaOk_(data) {
   return ContentService
     .createTextOutput(JSON.stringify({ success: true, data: data, error: null }))

@@ -82,8 +82,13 @@ function migrarSprint7CorrigirCabecalhoDataInicio_() {
   return { acao: 'corrigido', colunaDataInicio1based: posAC + 1, colunaResponsavelId1based: totalColunas + 1, cabecalhoDepois: cabecalhoDepois };
 }
 
+// Sprint 8 "Performance e Estabilidade" (2026-08-10): cacheada (5min, ver
+// lerAbaComoObjetosCacheada_ em Utils.gs) -- as 8 etapas do pipeline nunca
+// mudam pelo app, mas eram relidas da planilha em todo doGet de leitura E
+// internamente em obterEtapaPorId_/criarOportunidade_, várias vezes por
+// requisição em alguns fluxos (ex: mover etapa lê a etapa atual e a nova).
 function listEtapas_() {
-  var etapas = lerAbaComoObjetos_(ABAS.ETAPAS);
+  var etapas = lerAbaComoObjetosCacheada_(ABAS.ETAPAS);
   return etapas.sort(function (a, b) { return a.ordem - b.ordem; });
 }
 
@@ -114,6 +119,14 @@ function listEtapas_() {
 // Localiza a linha (1-indexada, pronta pra getRange) de uma oportunidade
 // pelo id, junto com o cabeçalho da aba — evita ler a aba inteira duas
 // vezes em obterAnotacao_/salvarAnotacao_.
+// Sprint 8 "Performance e Estabilidade" (2026-08-10): passou a devolver
+// também `linhaValores` (os valores atuais da linha encontrada) -- já
+// estavam sendo lidos como parte do getDataRange().getValues() acima, só
+// não eram aproveitados. Isso evita que cada função chamadora precise
+// fazer uma nova chamada getRange(...).getValue() por campo que precisa
+// ler (valorAtual/setarCampo liam célula a célula depois de já ter a
+// linha inteira em mãos). Aditivo -- nenhum chamador existente que só usa
+// `linha`/`cabecalho` precisa mudar.
 function encontrarLinhaOportunidade_(aba, oportunidadeId) {
   var valores = aba.getDataRange().getValues();
   var cabecalho = valores[0];
@@ -123,7 +136,7 @@ function encontrarLinhaOportunidade_(aba, oportunidadeId) {
   }
   for (var i = 1; i < valores.length; i++) {
     if (String(valores[i][colId]) === String(oportunidadeId)) {
-      return { linha: i + 1, cabecalho: cabecalho };
+      return { linha: i + 1, cabecalho: cabecalho, linhaValores: valores[i] };
     }
   }
   return null;
@@ -190,8 +203,13 @@ function salvarAnotacao_(oportunidadeId, anotacoes) {
  * primeira vez que a aba Timeline deixa de ficar vazia.
  */
 
+// Sprint 8 "Performance e Estabilidade" (2026-08-10): passou a usar
+// listEtapas_() (cacheada) em vez de ler a aba direto -- moverEtapaOportunidade_
+// chama esta função duas vezes por requisição (etapa atual + etapa nova);
+// antes disso eram duas leituras completas da aba Etapas, agora a segunda
+// chamada custa só um lookup em memória no cache já quente.
 function obterEtapaPorId_(etapaId) {
-  var etapas = lerAbaComoObjetos_(ABAS.ETAPAS);
+  var etapas = listEtapas_();
   for (var i = 0; i < etapas.length; i++) {
     if (String(etapas[i].id) === String(etapaId)) return etapas[i];
   }
@@ -217,7 +235,7 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
     }
     var cabecalho = encontrada.cabecalho;
     var colEtapa = cabecalho.indexOf('etapa_id');
-    var etapaAtualId = aba.getRange(encontrada.linha, colEtapa + 1).getValue();
+    var etapaAtualId = encontrada.linhaValores[colEtapa];
     var etapaAtual = obterEtapaPorId_(etapaAtualId);
     var etapaNova = obterEtapaPorId_(novaEtapaId);
 
@@ -243,21 +261,21 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
     }
 
     var agora = new Date().toISOString();
-    function setarCampo(nomeCampo, valor) {
-      var col = cabecalho.indexOf(nomeCampo);
-      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
-    }
-
-    setarCampo('etapa_id', novaEtapaId);
-    setarCampo('atualizado_em', agora);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): campos
+    // acumulados num objeto e gravados numa única chamada setValues (ver
+    // gravarCamposLinha_ em Utils.gs), em vez de até 5 chamadas setValue
+    // separadas -- mesmos campos, mesmos valores, uma API call em vez de
+    // várias.
+    var campos = { etapa_id: novaEtapaId, atualizado_em: agora };
 
     if (etapaNova.tipo === 'perdido') {
-      setarCampo('etapa_origem_perda_id', etapaAtualId);
-      setarCampo('motivo_perda_id', motivoPerdaId);
-      setarCampo('perdido_em', agora);
-      setarCampo('perdido_por', usuarioId || '');
-      setarCampo('motivo_perda_descricao_outro', motivo.nome === 'Outro' ? String(motivoPerdaOutroTexto).trim() : '');
+      campos.etapa_origem_perda_id = etapaAtualId;
+      campos.motivo_perda_id = motivoPerdaId;
+      campos.perdido_em = agora;
+      campos.perdido_por = usuarioId || '';
+      campos.motivo_perda_descricao_outro = motivo.nome === 'Outro' ? String(motivoPerdaOutroTexto).trim() : '';
     }
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, campos);
 
     var descricaoEvento = 'Movida de "' + (etapaAtual ? etapaAtual.nome : '?') + '" para "' + etapaNova.nome + '"';
     if (motivo) {
@@ -289,9 +307,15 @@ function transferirOportunidade_(oportunidadeId, novoResponsavelId, usuarioId) {
     }
     var cabecalho = encontrada.cabecalho;
     var colResp = cabecalho.indexOf('responsavel_id');
-    var responsavelAntigoId = aba.getRange(encontrada.linha, colResp + 1).getValue();
+    var responsavelAntigoId = encontrada.linhaValores[colResp];
 
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): usa a lista
+    // cacheada (listUsuarios_) em vez de reler Usuarios direto -- mesma
+    // função local "nomeUsuario" mantida (não trocada por
+    // nomeUsuarioPorId_) para preservar exatamente o texto de fallback
+    // original ("Usuario " + id) e não mudar o comportamento em nenhum
+    // caso, nem o de borda de um responsável antigo já removido da aba.
+    var usuarios = listUsuarios_();
     function nomeUsuario(id) {
       for (var i = 0; i < usuarios.length; i++) {
         if (String(usuarios[i].id) === String(id)) return usuarios[i].nome;
@@ -304,9 +328,10 @@ function transferirOportunidade_(oportunidadeId, novoResponsavelId, usuarioId) {
     }
 
     var agora = new Date().toISOString();
-    aba.getRange(encontrada.linha, colResp + 1).setValue(novoResponsavelId);
-    var colAtualizado = cabecalho.indexOf('atualizado_em');
-    if (colAtualizado !== -1) aba.getRange(encontrada.linha, colAtualizado + 1).setValue(agora);
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      responsavel_id: novoResponsavelId,
+      atualizado_em: agora
+    });
 
     var descricaoEvento = 'Transferida de "' + nomeUsuario(responsavelAntigoId) + '" para "' + nomeUsuario(novoResponsavelId) + '" por "' + nomeUsuario(usuarioId) + '"';
     registrarEventoTimeline_(oportunidadeId, 'transferencia', descricaoEvento, usuarioId);
@@ -357,39 +382,38 @@ function associarVeiculoEstoque_(oportunidadeId, veiculoEstoqueId, usuarioId) {
       throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
     }
     var cabecalho = encontrada.cabecalho;
-    function setarCampo(nomeCampo, valor) {
-      var col = cabecalho.indexOf(nomeCampo);
-      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
-    }
 
     var descricaoVeiculo = [veiculo.marca, veiculo.modeloVersao, veiculo.ano]
       .filter(function (v) { return !!v; })
       .join(' ');
     var agora = new Date().toISOString();
 
-    setarCampo('veiculo_estoque_id', veiculo.id);
-    setarCampo('veiculo_estoque_marca', veiculo.marca || '');
-    setarCampo('veiculo_estoque_modelo_versao', veiculo.modeloVersao || '');
-    setarCampo('veiculo_estoque_ano', veiculo.ano || '');
-    setarCampo('veiculo_estoque_km', veiculo.km != null ? veiculo.km : '');
-    setarCampo('veiculo_estoque_preco', veiculo.preco != null ? veiculo.preco : '');
-    setarCampo('veiculo_estoque_imagem', veiculo.imagemPrincipal || '');
-    setarCampo('veiculo_estoque_associado_em', agora);
-    setarCampo('veiculo_interesse', descricaoVeiculo);
-    setarCampo('atualizado_em', agora);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): 9 campos
+    // acumulados e gravados numa única chamada setValues (ver
+    // gravarCamposLinha_ em Utils.gs), em vez de 9 chamadas setValue
+    // separadas -- mesmos campos, mesmos valores.
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      veiculo_estoque_id: veiculo.id,
+      veiculo_estoque_marca: veiculo.marca || '',
+      veiculo_estoque_modelo_versao: veiculo.modeloVersao || '',
+      veiculo_estoque_ano: veiculo.ano || '',
+      veiculo_estoque_km: veiculo.km != null ? veiculo.km : '',
+      veiculo_estoque_preco: veiculo.preco != null ? veiculo.preco : '',
+      veiculo_estoque_imagem: veiculo.imagemPrincipal || '',
+      veiculo_estoque_associado_em: agora,
+      veiculo_interesse: descricaoVeiculo,
+      atualizado_em: agora
+    });
 
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
-    function nomeUsuario(id) {
-      for (var i = 0; i < usuarios.length; i++) {
-        if (String(usuarios[i].id) === String(id)) return usuarios[i].nome;
-      }
-      return 'Alguem';
-    }
+    // Sprint 8: usa a lista cacheada (listUsuarios_) e o helper
+    // compartilhado nomeUsuarioPorId_ (Utils.gs, mesmo fallback 'Alguem'
+    // que já era usado aqui) em vez de reler Usuarios direto.
+    var usuarios = listUsuarios_();
 
     registrarEventoTimeline_(
       oportunidadeId,
       'veiculo_associado',
-      '"' + nomeUsuario(usuarioId) + '" associou o veiculo "' + descricaoVeiculo + '" (Simples #' + veiculo.id + ') a oportunidade.',
+      '"' + nomeUsuarioPorId_(usuarios, usuarioId) + '" associou o veiculo "' + descricaoVeiculo + '" (Simples #' + veiculo.id + ') a oportunidade.',
       usuarioId
     );
 
@@ -435,19 +459,23 @@ function criarOportunidade_(dados) {
     throw new Error('Nome, telefone, origem e responsavel sao obrigatorios.');
   }
 
-  var origens = lerAbaComoObjetos_(ABAS.ORIGENS);
+  // Sprint 8 "Performance e Estabilidade" (2026-08-10): Origens/Usuarios/
+  // Etapas agora vêm das listas cacheadas (listOrigens_/listUsuarios_/
+  // listEtapas_, ver Utils.gs) em vez de reler cada aba do zero -- mesmos
+  // dados, sem custo extra de API quando o cache já está quente.
+  var origens = listOrigens_();
   var origemValida = origens.some(function (o) { return String(o.id) === String(origemId); });
   if (!origemValida) {
     throw new Error('Origem invalida: ' + origemId);
   }
 
-  var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+  var usuarios = listUsuarios_();
   var responsavelValido = usuarios.some(function (u) { return String(u.id) === String(responsavelId); });
   if (!responsavelValido) {
     throw new Error('Responsavel invalido: ' + responsavelId);
   }
 
-  var etapas = lerAbaComoObjetos_(ABAS.ETAPAS);
+  var etapas = listEtapas_();
   var etapaNovoLead = null;
   for (var i = 0; i < etapas.length; i++) {
     if (etapas[i].nome === 'Novo Lead') { etapaNovoLead = etapas[i]; break; }
@@ -536,7 +564,7 @@ function excluirOportunidade_(oportunidadeId, usuarioId) {
       );
     }
 
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    var usuarios = listUsuarios_();
     var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
     var agora = new Date().toISOString();
 
@@ -545,11 +573,13 @@ function excluirOportunidade_(oportunidadeId, usuarioId) {
     // excluído nada a excluir sem deixar rastro.
     registrarEventoTimeline_(oportunidadeId, 'exclusao', '"' + atorNome + '" excluiu esta negociacao.', usuarioId);
 
-    aba.getRange(encontrada.linha, colExcluidoEm + 1).setValue(agora);
-    var colExcluidoPor = cabecalho.indexOf('excluido_por');
-    if (colExcluidoPor !== -1) {
-      aba.getRange(encontrada.linha, colExcluidoPor + 1).setValue(usuarioId || '');
-    }
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): as duas colunas
+    // (excluido_em/excluido_por) são gravadas numa única chamada setValues
+    // em vez de duas chamadas setValue separadas.
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      excluido_em: agora,
+      excluido_por: usuarioId || ''
+    });
 
     return { oportunidadeId: oportunidadeId, excluidoEm: agora };
   } finally {
@@ -595,23 +625,34 @@ function editarDadosOportunidade_(oportunidadeId, dados, usuarioId) {
     }
     var cabecalhoOp = encontrada.cabecalho;
     var linhaOp = encontrada.linha;
+    var linhaValoresOp = encontrada.linhaValores;
 
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): valorAtualOp_
+    // passou a ler da linha já em memória (linhaValoresOp, vinda de
+    // encontrarLinhaOportunidade_) em vez de uma chamada getRange().
+    // getValue() por campo; setarCampoOp_ passou a acumular os campos que
+    // de fato mudam num objeto em vez de escrever célula a célula -- a
+    // gravação real vira uma única chamada setValues mais abaixo (ver
+    // gravarCamposLinha_ em Utils.gs), só quando algo realmente mudou
+    // (mesma condição de antes: dentro dos blocos que já chamavam
+    // mudancas.push).
+    var camposParaGravar = {};
     function valorAtualOp_(nomeCampo) {
       var col = cabecalhoOp.indexOf(nomeCampo);
       if (col === -1) return '';
-      var v = abaOportunidades.getRange(linhaOp, col + 1).getValue();
+      var v = linhaValoresOp[col];
       return v === null || v === undefined ? '' : String(v);
     }
     function setarCampoOp_(nomeCampo, valor) {
       var col = cabecalhoOp.indexOf(nomeCampo);
-      if (col !== -1) abaOportunidades.getRange(linhaOp, col + 1).setValue(valor);
+      if (col !== -1) camposParaGravar[nomeCampo] = valor;
     }
 
     var colClienteId = cabecalhoOp.indexOf('cliente_id');
-    var clienteId = colClienteId !== -1 ? abaOportunidades.getRange(linhaOp, colClienteId + 1).getValue() : null;
+    var clienteId = colClienteId !== -1 ? linhaValoresOp[colClienteId] : null;
 
     var mudancas = [];
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    var usuarios = listUsuarios_();
     var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
 
     // --- Campos do Cliente (nome / telefone / cidade) ---
@@ -633,7 +674,7 @@ function editarDadosOportunidade_(oportunidadeId, dados, usuarioId) {
 
     // --- Origem da oportunidade ---
     if (dados.origemId !== undefined && String(dados.origemId) !== '') {
-      var origens = lerAbaComoObjetos_(ABAS.ORIGENS);
+      var origens = listOrigens_();
       var origemAtualId = valorAtualOp_('origem_id');
       if (String(origemAtualId) !== String(dados.origemId)) {
         var origemNova = null;
@@ -671,15 +712,24 @@ function editarDadosOportunidade_(oportunidadeId, dados, usuarioId) {
     var oportunidadeFinal;
     if (mudancas.length === 0) {
       // Nada mudou de fato (usuário abriu o formulário e salvou sem
-      // editar nenhum campo) -- não grava evento vazio no Timeline.
-      oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
-        return String(o.id) === String(oportunidadeId);
-      })[0];
+      // editar nenhum campo) -- não grava evento vazio no Timeline. Sprint
+      // 8: também não faz nenhuma escrita nem releitura da aba -- o
+      // objeto de retorno é montado direto da linha já em memória.
+      oportunidadeFinal = {};
+      cabecalhoOp.forEach(function (chave, i) { oportunidadeFinal[chave] = linhaValoresOp[i]; });
       return { oportunidade: oportunidadeFinal, cliente: clienteAtualizado };
     }
 
     var agora = new Date().toISOString();
-    setarCampoOp_('atualizado_em', agora);
+    camposParaGravar.atualizado_em = agora;
+
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): todos os campos
+    // que mudaram (origem_id/data_inicio_negociacao/atualizado_em) são
+    // gravados numa única chamada setValues, que já devolve o objeto
+    // atualizado -- sem precisar reler a aba inteira em seguida (a
+    // releitura completa, feita duas vezes nesta função antes desta
+    // Sprint, era o ponto mais caro dela).
+    oportunidadeFinal = gravarCamposLinha_(abaOportunidades, linhaOp, cabecalhoOp, linhaValoresOp, camposParaGravar);
 
     registrarEventoTimeline_(
       oportunidadeId,
@@ -688,9 +738,6 @@ function editarDadosOportunidade_(oportunidadeId, dados, usuarioId) {
       usuarioId
     );
 
-    oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
-      return String(o.id) === String(oportunidadeId);
-    })[0];
     return { oportunidade: oportunidadeFinal, cliente: clienteAtualizado };
   } finally {
     lock.releaseLock();
@@ -766,10 +813,6 @@ function atualizarProximaAcao_(oportunidadeId, dados, usuarioId) {
       throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
     }
     var cabecalho = encontrada.cabecalho;
-    function setarCampo(nomeCampo, valor) {
-      var col = cabecalho.indexOf(nomeCampo);
-      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
-    }
     if (cabecalho.indexOf('proxima_acao_tipo') === -1) {
       throw new Error(
         'Coluna "proxima_acao_tipo" nao existe na aba Oportunidades -- adicione as colunas da Sprint 7 antes de usar próxima ação.'
@@ -777,24 +820,31 @@ function atualizarProximaAcao_(oportunidadeId, dados, usuarioId) {
     }
 
     var colResp = cabecalho.indexOf('responsavel_id');
-    var responsavelPadraoId = colResp !== -1 ? aba.getRange(encontrada.linha, colResp + 1).getValue() : '';
+    var responsavelPadraoId = colResp !== -1 ? encontrada.linhaValores[colResp] : '';
     var responsavelId = dados.proximaAcaoResponsavelId || responsavelPadraoId;
 
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): Usuarios vem da
+    // lista cacheada (listUsuarios_, ver Utils.gs) em vez de reler a aba.
+    var usuarios = listUsuarios_();
     var respValido = usuarios.some(function (u) { return String(u.id) === String(responsavelId); });
     if (!respValido) {
       throw new Error('Responsável pela próxima ação inválido: ' + responsavelId);
     }
 
     var descricaoTipo = tipo === 'Outro' ? outroTexto : tipo;
-
-    setarCampo('proxima_acao_tipo', tipo);
-    setarCampo('proxima_acao_outro_texto', tipo === 'Outro' ? outroTexto : '');
-    setarCampo('proxima_acao_data', data);
-    setarCampo('proxima_acao_responsavel_id', responsavelId);
-    setarCampo('proxima_acao', descricaoTipo);
     var agora = new Date().toISOString();
-    setarCampo('atualizado_em', agora);
+
+    // Sprint 8: os 6 campos são gravados numa única chamada setValues, que
+    // já devolve o objeto atualizado -- sem releitura completa da aba
+    // depois (ver gravarCamposLinha_ em Utils.gs).
+    var oportunidadeFinal = gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      proxima_acao_tipo: tipo,
+      proxima_acao_outro_texto: tipo === 'Outro' ? outroTexto : '',
+      proxima_acao_data: data,
+      proxima_acao_responsavel_id: responsavelId,
+      proxima_acao: descricaoTipo,
+      atualizado_em: agora
+    });
 
     var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
     var respNome = nomeUsuarioPorId_(usuarios, responsavelId);
@@ -805,9 +855,6 @@ function atualizarProximaAcao_(oportunidadeId, dados, usuarioId) {
       usuarioId
     );
 
-    var oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
-      return String(o.id) === String(oportunidadeId);
-    })[0];
     return { oportunidade: oportunidadeFinal };
   } finally {
     lock.releaseLock();
@@ -832,15 +879,15 @@ function concluirProximaAcao_(oportunidadeId, usuarioId) {
       throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
     }
     var cabecalho = encontrada.cabecalho;
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): valorAtual lê da
+    // linha já em memória (linhaValores, vinda de
+    // encontrarLinhaOportunidade_) em vez de uma chamada getRange().
+    // getValue() por campo.
     function valorAtual(nomeCampo) {
       var col = cabecalho.indexOf(nomeCampo);
       if (col === -1) return '';
-      var v = aba.getRange(encontrada.linha, col + 1).getValue();
+      var v = encontrada.linhaValores[col];
       return v === null || v === undefined ? '' : String(v);
-    }
-    function setarCampo(nomeCampo, valor) {
-      var col = cabecalho.indexOf(nomeCampo);
-      if (col !== -1) aba.getRange(encontrada.linha, col + 1).setValue(valor);
     }
 
     // Aceita tanto oportunidades já no modelo estruturado desta Sprint
@@ -854,7 +901,7 @@ function concluirProximaAcao_(oportunidadeId, usuarioId) {
       throw new Error('Esta oportunidade não tem uma próxima ação ativa para concluir.');
     }
 
-    var usuarios = lerAbaComoObjetos_(ABAS.USUARIOS);
+    var usuarios = listUsuarios_();
     var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
     registrarEventoTimeline_(
       oportunidadeId,
@@ -863,17 +910,19 @@ function concluirProximaAcao_(oportunidadeId, usuarioId) {
       usuarioId
     );
 
-    setarCampo('proxima_acao_tipo', '');
-    setarCampo('proxima_acao_outro_texto', '');
-    setarCampo('proxima_acao_data', '');
-    setarCampo('proxima_acao_responsavel_id', '');
-    setarCampo('proxima_acao', '');
     var agora = new Date().toISOString();
-    setarCampo('atualizado_em', agora);
+    // Sprint 8: os 6 campos são gravados numa única chamada setValues, que
+    // já devolve o objeto atualizado -- sem releitura completa da aba
+    // depois (ver gravarCamposLinha_ em Utils.gs).
+    var oportunidadeFinal = gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      proxima_acao_tipo: '',
+      proxima_acao_outro_texto: '',
+      proxima_acao_data: '',
+      proxima_acao_responsavel_id: '',
+      proxima_acao: '',
+      atualizado_em: agora
+    });
 
-    var oportunidadeFinal = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) {
-      return String(o.id) === String(oportunidadeId);
-    })[0];
     return { oportunidade: oportunidadeFinal };
   } finally {
     lock.releaseLock();
