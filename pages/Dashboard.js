@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listClientes, listEtapas, listMotivosPerda, listOportunidades, listOrigens, listUsuarios } from "../services/oportunidades.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
@@ -102,23 +102,30 @@ export function Dashboard({ onIrPipeline }) {
         })
             .finally(() => setCarregando(false));
     }, [idToken, logout]);
-    if (carregando)
-        return _jsx("p", { className: "pipeline-loading", children: "Carregando dashboard..." });
-    if (erro)
-        return _jsx("p", { className: "pipeline-loading", children: erro });
-    const nomesUsuarios = new Map(usuarios.map((u) => [u.id, u.nome]));
-    const nomesClientes = new Map(clientes.map((c) => [c.id, c.nome]));
-    const nomesOrigens = new Map(origens.map((o) => [o.id, o.nome]));
-    const nomesMotivos = new Map(motivosPerda.map((m) => [m.id, m.nome]));
-    const nomesEtapas = new Map(etapas.map((e) => [e.id, e.nome]));
-    const ordemEtapas = new Map(etapas.map((e) => [e.id, e.ordem]));
-    const porOrdemDeEtapa = (a, b) => (ordemEtapas.get(a) ?? 0) - (ordemEtapas.get(b) ?? 0);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): os mapas de nome,
+    // o recorte filtrado e os 9 indicadores eram recalculados (várias
+    // passagens completas sobre `oportunidades`, com sort/allocations) em
+    // TODO render do Dashboard, mesmo quando nada que os afeta tinha
+    // mudado. Agora ficam em useMemo, recalculando só quando a dependência
+    // relevante muda de fato. Precisam ficar ANTES dos early-returns de
+    // carregando/erro abaixo -- hooks não podem ser chamados depois de um
+    // return condicional (React exige a mesma sequência de hooks em todo
+    // render); como os estados começam vazios ([]), calcular em cima deles
+    // antes dos dados chegarem é barato e inofensivo, e o resultado só é
+    // usado depois que `carregando` vira false de qualquer forma.
+    const nomesUsuarios = useMemo(() => new Map(usuarios.map((u) => [u.id, u.nome])), [usuarios]);
+    const nomesClientes = useMemo(() => new Map(clientes.map((c) => [c.id, c.nome])), [clientes]);
+    const nomesOrigens = useMemo(() => new Map(origens.map((o) => [o.id, o.nome])), [origens]);
+    const nomesMotivos = useMemo(() => new Map(motivosPerda.map((m) => [m.id, m.nome])), [motivosPerda]);
+    const nomesEtapas = useMemo(() => new Map(etapas.map((e) => [e.id, e.nome])), [etapas]);
+    const ordemEtapas = useMemo(() => new Map(etapas.map((e) => [e.id, e.ordem])), [etapas]);
+    const porOrdemDeEtapa = useMemo(() => (a, b) => (ordemEtapas.get(a) ?? 0) - (ordemEtapas.get(b) ?? 0), [ordemEtapas]);
     // Filtro único aplicado antes de calcular qualquer indicador — garante
     // que todos os números do dashboard vêm do mesmo recorte de dados
     // (critério de aceite: "os números permanecerem consistentes com o
     // Pipeline" — sem filtro nenhum, "por etapa" abaixo bate exatamente com
     // a contagem de cada coluna do Pipeline).
-    const oportunidadesFiltradas = oportunidades.filter((o) => {
+    const oportunidadesFiltradas = useMemo(() => oportunidades.filter((o) => {
         if (filtroResponsavelId && o.responsavelId !== filtroResponsavelId)
             return false;
         if (filtroOrigemId && o.origemId !== filtroOrigemId)
@@ -126,24 +133,29 @@ export function Dashboard({ onIrPipeline }) {
         if (!dentroDoPeriodo(o.criadoEm, filtroPeriodo))
             return false;
         return true;
-    });
-    const abertas = oportunidadesFiltradas.filter((o) => etapas.find((e) => e.id === o.etapaId)?.tipo === "ativa");
-    const perdidas = oportunidadesFiltradas.filter((o) => etapas.find((e) => e.id === o.etapaId)?.tipo === "perdido");
+    }), [oportunidades, filtroResponsavelId, filtroOrigemId, filtroPeriodo]);
+    const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
+    const abertas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ativa"), [oportunidadesFiltradas, etapasPorId]);
+    const perdidas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "perdido"), [oportunidadesFiltradas, etapasPorId]);
     const hojeStr = new Date().toISOString().slice(0, 10);
-    const acoesVencidas = abertas
+    const acoesVencidas = useMemo(() => abertas
         .filter((o) => o.proximaAcaoData && o.proximaAcaoData.slice(0, 10) < hojeStr)
-        .sort((a, b) => (a.proximaAcaoData ?? "").localeCompare(b.proximaAcaoData ?? ""));
-    const acoesDoDia = abertas.filter((o) => o.proximaAcaoData && o.proximaAcaoData.slice(0, 10) === hojeStr);
-    const porEtapa = agruparContagem(oportunidadesFiltradas, (o) => o.etapaId, nomesEtapas, porOrdemDeEtapa);
-    const porResponsavel = agruparContagem(oportunidadesFiltradas, (o) => o.responsavelId, nomesUsuarios);
-    const porOrigem = agruparContagem(oportunidadesFiltradas, (o) => o.origemId, nomesOrigens);
-    const motivosDePerda = agruparContagem(perdidas, (o) => o.motivoPerdaId, nomesMotivos);
-    const perdasPorEtapa = agruparContagem(perdidas, (o) => o.etapaOrigemPerdaId, nomesEtapas, porOrdemDeEtapa);
+        .sort((a, b) => (a.proximaAcaoData ?? "").localeCompare(b.proximaAcaoData ?? "")), [abertas, hojeStr]);
+    const acoesDoDia = useMemo(() => abertas.filter((o) => o.proximaAcaoData && o.proximaAcaoData.slice(0, 10) === hojeStr), [abertas, hojeStr]);
+    const porEtapa = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.etapaId, nomesEtapas, porOrdemDeEtapa), [oportunidadesFiltradas, nomesEtapas, porOrdemDeEtapa]);
+    const porResponsavel = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.responsavelId, nomesUsuarios), [oportunidadesFiltradas, nomesUsuarios]);
+    const porOrigem = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.origemId, nomesOrigens), [oportunidadesFiltradas, nomesOrigens]);
+    const motivosDePerda = useMemo(() => agruparContagem(perdidas, (o) => o.motivoPerdaId, nomesMotivos), [perdidas, nomesMotivos]);
+    const perdasPorEtapa = useMemo(() => agruparContagem(perdidas, (o) => o.etapaOrigemPerdaId, nomesEtapas, porOrdemDeEtapa), [perdidas, nomesEtapas, porOrdemDeEtapa]);
     const maiorPorEtapa = Math.max(1, ...porEtapa.map((l) => l.quantidade));
     const maiorPorResponsavel = Math.max(1, ...porResponsavel.map((l) => l.quantidade));
     const maiorPorOrigem = Math.max(1, ...porOrigem.map((l) => l.quantidade));
     const maiorMotivo = Math.max(1, ...motivosDePerda.map((l) => l.quantidade));
     const maiorPerdaEtapa = Math.max(1, ...perdasPorEtapa.map((l) => l.quantidade));
+    if (carregando)
+        return _jsx("p", { className: "pipeline-loading", children: "Carregando dashboard..." });
+    if (erro)
+        return _jsx("p", { className: "pipeline-loading", children: erro });
     return (_jsxs("div", { className: "dashboard", children: [_jsxs("h1", { children: ["Ol\u00E1, ", primeiroNome(usuario?.nome) || "—"] }), _jsx("p", { className: "dashboard__subtitulo", children: "Painel gerencial \u2014 vis\u00E3o di\u00E1ria da opera\u00E7\u00E3o comercial." }), _jsxs("div", { className: "dashboard__filtros", children: [_jsxs("label", { children: ["Per\u00EDodo", _jsx("select", { value: filtroPeriodo, onChange: (e) => setFiltroPeriodo(e.target.value), children: OPCOES_PERIODO.map((o) => (_jsx("option", { value: o.valor, children: o.rotulo }, o.valor))) })] }), _jsxs("label", { children: ["Respons\u00E1vel", _jsxs("select", { value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { children: ["Origem", _jsxs("select", { value: filtroOrigemId, onChange: (e) => setFiltroOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Todas as origens" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] })] }), _jsxs("div", { className: "dashboard__cards", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es em aberto" }), _jsx("strong", { className: "dashboard__card-valor", children: abertas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es perdidas" }), _jsx("strong", { className: "dashboard__card-valor", children: perdidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesVencidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesDoDia.length })] })] }), acoesVencidas.length > 0 && (_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("ul", { className: "dashboard__lista-acoes", children: acoesVencidas.map((o) => {
                             // Sprint 7 "Próximas Ações" (2026-08-07) — descrição
                             // estruturada (tipo/"Outro") com fallback pro texto legado, e

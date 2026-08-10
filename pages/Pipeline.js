@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, atualizarProximaAcao, concluirProximaAcao, } from "../services/oportunidades.js";
 import { associarVeiculoEstoque } from "../services/estoque.js";
 import { useAuth } from "../contexts/AuthContext.js";
@@ -175,12 +175,80 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         aoConsumirOportunidadeInicial?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [carregando, oportunidadeInicialId]);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): mapas id -> objeto/
+    // lista construídos uma vez por mudança de dado (useMemo), em vez de
+    // clientePorId/etapaPorId fazerem um Array.find() (O(n)) toda vez que
+    // são chamados -- e são chamados uma vez por card renderizado, então
+    // virava O(n²) numa coluna com várias oportunidades. Precisam ficar
+    // ANTES dos early-returns de carregando/erro abaixo (mesma razão do
+    // Dashboard.tsx: hooks não podem ser chamados depois de um return
+    // condicional) -- calcular em cima dos arrays vazios do estado inicial
+    // é barato e inofensivo.
+    const clientesPorId = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
+    const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
+    // Agrupamento do Kanban: antes, cada coluna fazia `oportunidades.filter(...)`
+    // dentro do próprio loop de render (etapas.map(...)) -- uma varredura
+    // completa do array de oportunidades por coluna, em TODO render do
+    // Pipeline (inclusive por uma tecla digitada num modal aberto, sem
+    // relação nenhuma com o Kanban). Agora é um único Map construído só
+    // quando `oportunidades`/`etapas` mudam de verdade.
+    const oportunidadesPorEtapaId = useMemo(() => {
+        const mapa = new Map();
+        for (const etapa of etapas)
+            mapa.set(etapa.id, []);
+        for (const o of oportunidades) {
+            const lista = mapa.get(o.etapaId);
+            if (lista)
+                lista.push(o);
+            else
+                mapa.set(o.etapaId, [o]);
+        }
+        return mapa;
+    }, [oportunidades, etapas]);
+    // Eventos de Timeline agrupados e já ordenados por oportunidade -- antes
+    // recalculado (filter + sort) a cada render enquanto o painel lateral
+    // estava aberto, mesmo para mudanças de estado sem nenhuma relação com a
+    // Timeline. Só recalcula quando `timelineEventos` de fato cresce (nova
+    // ação registrada).
+    const eventosPorOportunidadeId = useMemo(() => {
+        const mapa = new Map();
+        for (const ev of timelineEventos) {
+            const lista = mapa.get(ev.oportunidadeId);
+            if (lista)
+                lista.push(ev);
+            else
+                mapa.set(ev.oportunidadeId, [ev]);
+        }
+        for (const lista of mapa.values()) {
+            lista.sort((a, b) => (a.dataHora < b.dataHora ? 1 : -1));
+        }
+        return mapa;
+    }, [timelineEventos]);
+    // Handlers estáveis (useCallback, sem dependências que mudam por
+    // render) passados ao OpportunityCard -- pré-condição para o
+    // React.memo em OpportunityCard.tsx realmente evitar re-render de
+    // cards que não mudaram (ver comentário lá). Recebem o id da
+    // oportunidade como argumento (contrato novo, ver OpportunityCard.tsx)
+    // em vez de o Pipeline criar um closure "() => algo(o.id)" novo por
+    // card a cada render.
+    const handleClickCard = useCallback((id) => {
+        setSelecionadaId(id);
+    }, []);
+    const handleDragStartCardEstavel = useCallback((id, e) => {
+        e.dataTransfer.setData("text/plain", id);
+        e.dataTransfer.effectAllowed = "move";
+        setArrastandoId(id);
+    }, []);
+    const handleDragEndCardEstavel = useCallback(() => {
+        setArrastandoId(null);
+        setColunaSobreId(null);
+    }, []);
     if (carregando)
         return _jsx("p", { className: "pipeline-loading", children: "Carregando pipeline..." });
     if (erro)
         return _jsx("p", { className: "pipeline-loading", children: erro });
-    const clientePorId = (id) => clientes.find((c) => c.id === id);
-    const etapaPorId = (id) => etapas.find((e) => e.id === id);
+    const clientePorId = (id) => clientesPorId.get(id);
+    const etapaPorId = (id) => etapasPorId.get(id);
     const oportunidadeSelecionada = oportunidades.find((o) => o.id === selecionadaId) ?? null;
     function registrarEvento(oportunidadeId, descricao, tipoEvento) {
         setTimelineEventos((prev) => [
@@ -527,17 +595,14 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         });
     }
     // --- Drag-and-drop (desktop) ------------------------------------------
-    function handleDragStartCard(oportunidadeId) {
-        return (e) => {
-            e.dataTransfer.setData("text/plain", oportunidadeId);
-            e.dataTransfer.effectAllowed = "move";
-            setArrastandoId(oportunidadeId);
-        };
-    }
-    function handleDragEndCard() {
-        setArrastandoId(null);
-        setColunaSobreId(null);
-    }
+    //
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): handleDragStartCard/
+    // handleDragEndCard (fábrica de closure + função recriada por render)
+    // foram substituídas pelas versões estáveis handleDragStartCardEstavel/
+    // handleDragEndCardEstavel (useCallback, declaradas antes do
+    // early-return acima) para o React.memo do OpportunityCard funcionar de
+    // verdade -- ver comentário lá. Mesmo comportamento, só a identidade da
+    // função passada como prop que agora não muda a cada render.
     function handleDragOverColuna(etapaId) {
         return (e) => {
             e.preventDefault();
@@ -599,20 +664,23 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
     }
     const oportunidadeDropPendente = dropPendente ? oportunidades.find((o) => o.id === dropPendente.oportunidadeId) : null;
     return (_jsxs("div", { className: "pipeline", children: [_jsx("div", { className: "pipeline__topo", children: _jsx("button", { className: "pipeline__botao-nova", onClick: abrirNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }) }), acaoErro && _jsx("p", { className: "pipeline__aviso-acao", children: acaoErro }), _jsx("div", { className: "pipeline__board", children: etapas.map((etapa) => {
-                    const opsDaEtapa = oportunidades.filter((o) => o.etapaId === etapa.id);
+                    // Sprint 8: vem do Map memoizado (oportunidadesPorEtapaId) em vez
+                    // de filtrar o array inteiro de novo a cada render/coluna.
+                    const opsDaEtapa = oportunidadesPorEtapaId.get(etapa.id) ?? [];
                     const etapaFinal = etapa.tipo === "ganho" || etapa.tipo === "perdido";
                     const arrastavel = isDesktop && !etapaFinal;
                     return (_jsxs("section", { className: `pipeline__coluna pipeline__coluna--${etapa.tipo}` +
-                            (colunaSobreId === etapa.id ? " pipeline__coluna--sobre" : ""), onDragOver: isDesktop ? handleDragOverColuna(etapa.id) : undefined, onDrop: isDesktop ? handleDropColuna(etapa.id) : undefined, children: [_jsxs("header", { className: "pipeline__coluna-header", children: [_jsx("h2", { children: etapa.nome }), _jsx("span", { className: "pipeline__contagem", children: opsDaEtapa.length })] }), _jsxs("div", { className: "pipeline__coluna-cards", children: [opsDaEtapa.length === 0 && _jsx("p", { className: "pipeline__vazio", children: "Sem oportunidades" }), opsDaEtapa.map((o) => (_jsx(OpportunityCard, { oportunidade: o, cliente: clientePorId(o.clienteId), onClick: () => setSelecionadaId(o.id), arrastavel: arrastavel, onDragStart: handleDragStartCard(o.id), onDragEnd: handleDragEndCard, destaque: destaqueId === o.id }, o.id)))] })] }, etapa.id));
+                            (colunaSobreId === etapa.id ? " pipeline__coluna--sobre" : ""), onDragOver: isDesktop ? handleDragOverColuna(etapa.id) : undefined, onDrop: isDesktop ? handleDropColuna(etapa.id) : undefined, children: [_jsxs("header", { className: "pipeline__coluna-header", children: [_jsx("h2", { children: etapa.nome }), _jsx("span", { className: "pipeline__contagem", children: opsDaEtapa.length })] }), _jsxs("div", { className: "pipeline__coluna-cards", children: [opsDaEtapa.length === 0 && _jsx("p", { className: "pipeline__vazio", children: "Sem oportunidades" }), opsDaEtapa.map((o) => (_jsx(OpportunityCard, { oportunidade: o, cliente: clientePorId(o.clienteId), onClick: handleClickCard, arrastavel: arrastavel, onDragStart: handleDragStartCardEstavel, onDragEnd: handleDragEndCardEstavel, destaque: destaqueId === o.id }, o.id)))] })] }, etapa.id));
                 }) }), oportunidadeSelecionada &&
                 (() => {
                     const etapaAtual = etapaPorId(oportunidadeSelecionada.etapaId);
                     const itensChecklist = checklistTemplatePorEtapa(etapaAtual);
                     const chaveChecklist = `${oportunidadeSelecionada.id}|${oportunidadeSelecionada.etapaId}`;
                     const feitoChecklist = checklistState[chaveChecklist] ?? itensChecklist.map(() => false);
-                    const eventosDaOportunidade = timelineEventos
-                        .filter((ev) => ev.oportunidadeId === oportunidadeSelecionada.id)
-                        .sort((a, b) => (a.dataHora < b.dataHora ? 1 : -1));
+                    // Sprint 8: vem do Map memoizado (eventosPorOportunidadeId, já
+                    // filtrado e ordenado) em vez de filtrar+ordenar timelineEventos
+                    // inteiro de novo a cada render enquanto o painel está aberto.
+                    const eventosDaOportunidade = eventosPorOportunidadeId.get(oportunidadeSelecionada.id) ?? [];
                     return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
                 })(), dropPendente && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => setNnTelefone(e.target.value), placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
                                                     .filter((u) => u.ativo)
