@@ -1,5 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext.js";
 import { obterAnotacao, salvarAnotacao } from "../services/anotacoes.js";
 import { listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
@@ -222,8 +222,22 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
     const [termoBuscaVeiculo, setTermoBuscaVeiculo] = useState("");
     const [associandoId, setAssociandoId] = useState(null);
     const [erroAssociar, setErroAssociar] = useState(null);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10) — antes, esta busca
+    // disparava sempre que o painel abria, mesmo para oportunidades sem
+    // nenhum veículo associado e sem o usuário nunca clicar em "Associar
+    // veículo do estoque": uma chamada de rede completa (54 itens, com
+    // retry/backoff em caso de falha do Apps Script) que muitas vezes nunca
+    // era usada. Agora só busca quando de fato precisa: (a) já existe um
+    // veículo associado (`veiculoEstoqueId`), para mostrar preço/km/
+    // disponibilidade ao vivo, ou (b) o usuário abriu a busca de associação
+    // (`buscaVeiculoAberta`). Não muda o que aparece quando o usuário
+    // efetivamente olha essa seção -- só adia a chamada até o momento em que
+    // o dado é de fato necessário.
     useEffect(() => {
         if (!idToken)
+            return;
+        const precisaCatalogoEstoque = !!oportunidade.veiculoEstoqueId || buscaVeiculoAberta;
+        if (!precisaCatalogoEstoque)
             return;
         let cancelado = false;
         setEstoqueCarregando(true);
@@ -244,14 +258,20 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
         return () => {
             cancelado = true;
         };
-    }, [oportunidade.id, idToken]);
-    const veiculoEstoqueAoVivo = oportunidade.veiculoEstoqueId
-        ? estoqueLista.find((v) => v.id === oportunidade.veiculoEstoqueId)
-        : undefined;
+    }, [oportunidade.id, oportunidade.veiculoEstoqueId, idToken, buscaVeiculoAberta]);
+    // Sprint 8 "Performance e Estabilidade" (2026-08-10): SidePanel é um
+    // componente único e grande (sem fronteira de componente filho para os
+    // campos de texto), então uma tecla digitada em QUALQUER campo (Anotações,
+    // Editar dados, texto de "Outro" etc.) re-renderiza o componente inteiro
+    // e recalculava estas duas buscas de novo a cada vez, mesmo sem
+    // `estoqueLista`/`termoBuscaVeiculo`/o id do veículo terem mudado. Baixo
+    // custo hoje (54 itens), mas useMemo evita o recálculo redundante sem
+    // mudar nenhum resultado.
+    const veiculoEstoqueAoVivo = useMemo(() => (oportunidade.veiculoEstoqueId ? estoqueLista.find((v) => v.id === oportunidade.veiculoEstoqueId) : undefined), [oportunidade.veiculoEstoqueId, estoqueLista]);
     // Só decide "indisponível" depois que a consulta terminou com sucesso —
     // enquanto carrega, não afirma nada sobre disponibilidade ainda.
     const veiculoEstoqueIndisponivel = !!oportunidade.veiculoEstoqueId && !estoqueCarregando && !estoqueErro && !veiculoEstoqueAoVivo;
-    const resultadosBusca = buscaVeiculoAberta ? buscarVeiculosEstoque(estoqueLista, termoBuscaVeiculo).slice(0, 25) : [];
+    const resultadosBusca = useMemo(() => (buscaVeiculoAberta ? buscarVeiculosEstoque(estoqueLista, termoBuscaVeiculo).slice(0, 25) : []), [buscaVeiculoAberta, estoqueLista, termoBuscaVeiculo]);
     async function handleAssociarVeiculo(veiculoEstoqueId) {
         setAssociandoId(veiculoEstoqueId);
         setErroAssociar(null);
