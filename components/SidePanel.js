@@ -2,6 +2,7 @@ import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-run
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../contexts/AuthContext.js";
 import { obterAnotacao, salvarAnotacao } from "../services/anotacoes.js";
+import { obterChecklist, marcarItemChecklist } from "../services/checklist.js";
 import { listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
 import { TIPOS_PROXIMA_ACAO, descricaoProximaAcao } from "../utils/proximaAcao.js";
 const formatoMoeda = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -25,13 +26,17 @@ function formatarDataSimples(iso) {
         return iso;
     return formatoDataSimples.format(data);
 }
-export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], etapas, etapaAtual, motivosPerda = [], origens = [], timelineEventos, checklistItens, checklistFeito, onFechar, onMoverEtapa, onTransferir, onToggleChecklist, onAssociarVeiculoEstoque, onEditarDados, onExcluir, onSalvarProximaAcao, onConcluirProximaAcao, }) {
+export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], etapas, etapaAtual, motivosPerda = [], origens = [], timelineEventos, onFechar, onMoverEtapa, onTransferir, onChecklistMarcado, onAssociarVeiculoEstoque, onEditarDados, onExcluir, onSalvarProximaAcao, onConcluirProximaAcao, }) {
     // BUG corrigido em 2026-08-04 — ver nota em services/estoque.ts:
     // listEstoque exige sessão válida desde a Sprint 4, mas este componente
     // nunca lia idToken do contexto de autenticação (a ação estava isenta de
     // sessão quando foi implementada, na Sprint 3, antes da Sprint 4 trancar
     // todos os endpoints).
-    const { idToken } = useAuth();
+    // Ciclo 22 "Funil Comercial — Bloco 1" (2026-08-12): `usuario` passou a
+    // ser lido aqui também, para gravar quem marcou cada item do checklist
+    // (mesmo idToken já existia; ver nota abaixo de 2026-08-04 sobre por que
+    // este componente lê idToken direto do contexto).
+    const { idToken, usuario } = useAuth();
     const [aba, setAba] = useState("detalhes");
     // Sprint 1 — Motivo de perda e Origem agora vêm das listas oficiais
     // (motivosPerda/origens, buscadas do backend real em Pipeline.tsx), não
@@ -207,6 +212,59 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
             setAnotacoesErro("Não foi possível salvar agora. Tente novamente.");
         })
             .finally(() => setAnotacoesSalvando(false));
+    }
+    // Ciclo 22 "Funil Comercial — Bloco 1" (2026-08-12) — checklist real por
+    // etapa, buscado do backend sempre que a oportunidade aberta (ou a etapa
+    // dela) muda — mesmo padrão de carregamento sob demanda já usado acima
+    // para Anotações. Etapa entra na lista de dependências porque os itens
+    // dependem da etapa ATUAL (obterChecklist_ já resolve isso no backend a
+    // cada chamada) — se a oportunidade for movida com o painel aberto, o
+    // checklist precisa recarregar para mostrar os itens da nova etapa.
+    const [checklistItens, setChecklistItens] = useState([]);
+    const [checklistCarregando, setChecklistCarregando] = useState(true);
+    const [checklistErro, setChecklistErro] = useState(null);
+    const [checklistMarcandoChave, setChecklistMarcandoChave] = useState(null);
+    useEffect(() => {
+        if (!idToken)
+            return;
+        let cancelado = false;
+        setChecklistCarregando(true);
+        setChecklistErro(null);
+        obterChecklist(oportunidade.id, idToken)
+            .then((itens) => {
+            if (!cancelado)
+                setChecklistItens(itens);
+        })
+            .catch(() => {
+            if (!cancelado)
+                setChecklistErro("Não foi possível carregar o checklist agora.");
+        })
+            .finally(() => {
+            if (!cancelado)
+                setChecklistCarregando(false);
+        });
+        return () => {
+            cancelado = true;
+        };
+    }, [oportunidade.id, oportunidade.etapaId, idToken]);
+    async function handleToggleChecklistItem(item) {
+        if (checklistMarcandoChave)
+            return; // evita clique duplo enquanto uma marcação está em voo
+        const novoMarcado = !item.marcado;
+        setChecklistMarcandoChave(item.chave);
+        setChecklistErro(null);
+        try {
+            const atualizado = await marcarItemChecklist(oportunidade.id, item.chave, novoMarcado, usuario?.id, idToken);
+            setChecklistItens(atualizado);
+            if (novoMarcado)
+                onChecklistMarcado?.(item.texto);
+        }
+        catch {
+            setChecklistErro("Não foi possível atualizar este item agora.");
+        }
+        finally {
+            setChecklistMarcandoChave(null);
+        }
     }
     // Sprint 3 "Integração com Estoque do Simples" (2026-08-03) — busca e
     // associação de um veículo real do estoque. A lista completa (54 itens
@@ -389,7 +447,9 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
                                                             setErroTransferencia(null);
                                                         }, children: [_jsx("option", { value: "", children: "Selecione o novo respons\u00E1vel\u2026" }), usuarios
                                                                 .filter((u) => u.id !== oportunidade.responsavelId)
-                                                                .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] }), erroTransferencia && _jsx("p", { className: "side-panel__aviso", children: erroTransferencia }), _jsx("button", { className: "side-panel__botao-primario", onClick: confirmarTransferencia, disabled: transferindo || !responsavelAlvo, children: transferindo ? "Transferindo…" : "Confirmar transferência" })] })] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Excluir negocia\u00E7\u00E3o" }), erroExclusao && _jsx("p", { className: "side-panel__aviso", children: erroExclusao }), _jsx("button", { className: "side-panel__botao-perigo", onClick: () => setConfirmandoExclusao(true), children: "Excluir esta negocia\u00E7\u00E3o" })] })] })), aba === "timeline" && (_jsxs("ul", { className: "side-panel__timeline", children: [timelineEventos.length === 0 && (_jsx("li", { className: "side-panel__vazio-aba", children: "Sem eventos registrados ainda." })), timelineEventos.map((evento) => (_jsxs("li", { children: [_jsx("span", { className: "side-panel__timeline-data", children: formatarDataEvento(evento.dataHora) }), _jsx("span", { children: evento.descricao })] }, evento.id)))] })), aba === "checklist" && (_jsx(_Fragment, { children: checklistItens.length === 0 ? (_jsx("p", { className: "side-panel__vazio-aba", children: "Sem checklist para esta etapa." })) : (_jsxs(_Fragment, { children: [_jsx("p", { className: "side-panel__aviso", children: "Itens gen\u00E9ricos (placeholder) \u2014 lista oficial por etapa ainda pendente de valida\u00E7\u00E3o com o Guilherme." }), _jsx("ul", { className: "side-panel__checklist", children: checklistItens.map((texto, i) => (_jsx("li", { children: _jsxs("label", { children: [_jsx("input", { type: "checkbox", checked: checklistFeito[i] ?? false, onChange: () => onToggleChecklist(i) }), texto] }) }, i))) })] })) }))] })] }), confirmandoExclusao && (_jsx("div", { className: "drop-motivo-overlay", onClick: () => !excluindo && setConfirmandoExclusao(false), children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Excluir negocia\u00E7\u00E3o" }), _jsxs("p", { className: "side-panel__cliente", children: ["Tem certeza que deseja excluir a negocia\u00E7\u00E3o de \"", cliente?.nome ?? "Cliente não identificado", "\" (", oportunidade.veiculoInteresse, ")? Esta a\u00E7\u00E3o n\u00E3o pode ser desfeita pela equipe."] }), erroExclusao && _jsx("p", { className: "side-panel__aviso", children: erroExclusao }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-perigo", onClick: confirmarExclusao, disabled: excluindo, children: excluindo ? "Excluindo…" : "Sim, excluir" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: () => setConfirmandoExclusao(false), disabled: excluindo, children: "Cancelar" })] })] }) })), perguntandoNovaAcao && (_jsx("div", { className: "drop-motivo-overlay", onClick: () => setPerguntandoNovaAcao(false), children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "A\u00E7\u00E3o conclu\u00EDda" }), _jsx("p", { className: "side-panel__cliente", children: "Deseja criar outra pr\u00F3xima a\u00E7\u00E3o para esta negocia\u00E7\u00E3o?" }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: () => {
+                                                                .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] }), erroTransferencia && _jsx("p", { className: "side-panel__aviso", children: erroTransferencia }), _jsx("button", { className: "side-panel__botao-primario", onClick: confirmarTransferencia, disabled: transferindo || !responsavelAlvo, children: transferindo ? "Transferindo…" : "Confirmar transferência" })] })] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Excluir negocia\u00E7\u00E3o" }), erroExclusao && _jsx("p", { className: "side-panel__aviso", children: erroExclusao }), _jsx("button", { className: "side-panel__botao-perigo", onClick: () => setConfirmandoExclusao(true), children: "Excluir esta negocia\u00E7\u00E3o" })] })] })), aba === "timeline" && (_jsxs("ul", { className: "side-panel__timeline", children: [timelineEventos.length === 0 && (_jsx("li", { className: "side-panel__vazio-aba", children: "Sem eventos registrados ainda." })), timelineEventos.map((evento) => (_jsxs("li", { children: [_jsx("span", { className: "side-panel__timeline-data", children: formatarDataEvento(evento.dataHora) }), _jsx("span", { children: evento.descricao })] }, evento.id)))] })), aba === "checklist" && (_jsx(_Fragment, { children: checklistCarregando ? (_jsx("p", { className: "side-panel__vazio-aba", children: "Carregando checklist\u2026" })) : checklistErro && checklistItens.length === 0 ? (_jsx("p", { className: "side-panel__aviso", children: checklistErro })) : checklistItens.length === 0 ? (_jsx("p", { className: "side-panel__vazio-aba", children: etapaAtual?.nome === "Venda/Documentação"
+                                        ? "Checklist desta etapa ainda não foi definido."
+                                        : "Sem checklist para esta etapa." })) : (_jsxs(_Fragment, { children: [checklistErro && _jsx("p", { className: "side-panel__aviso", children: checklistErro }), _jsx("ul", { className: "side-panel__checklist", children: checklistItens.map((item) => (_jsxs("li", { children: [_jsxs("label", { children: [_jsx("input", { type: "checkbox", checked: item.marcado, disabled: checklistMarcandoChave === item.chave, onChange: () => void handleToggleChecklistItem(item) }), item.texto] }), item.marcado && item.marcadoEm && (_jsx("span", { className: "side-panel__checklist-data", children: formatarDataEvento(item.marcadoEm) }))] }, item.chave))) })] })) }))] })] }), confirmandoExclusao && (_jsx("div", { className: "drop-motivo-overlay", onClick: () => !excluindo && setConfirmandoExclusao(false), children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Excluir negocia\u00E7\u00E3o" }), _jsxs("p", { className: "side-panel__cliente", children: ["Tem certeza que deseja excluir a negocia\u00E7\u00E3o de \"", cliente?.nome ?? "Cliente não identificado", "\" (", oportunidade.veiculoInteresse, ")? Esta a\u00E7\u00E3o n\u00E3o pode ser desfeita pela equipe."] }), erroExclusao && _jsx("p", { className: "side-panel__aviso", children: erroExclusao }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-perigo", onClick: confirmarExclusao, disabled: excluindo, children: excluindo ? "Excluindo…" : "Sim, excluir" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: () => setConfirmandoExclusao(false), disabled: excluindo, children: "Cancelar" })] })] }) })), perguntandoNovaAcao && (_jsx("div", { className: "drop-motivo-overlay", onClick: () => setPerguntandoNovaAcao(false), children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "A\u00E7\u00E3o conclu\u00EDda" }), _jsx("p", { className: "side-panel__cliente", children: "Deseja criar outra pr\u00F3xima a\u00E7\u00E3o para esta negocia\u00E7\u00E3o?" }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: () => {
                                         setPerguntandoNovaAcao(false);
                                         iniciarEdicaoProximaAcao();
                                     }, children: "Sim" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: () => setPerguntandoNovaAcao(false), children: "N\u00E3o" })] })] }) }))] }));
