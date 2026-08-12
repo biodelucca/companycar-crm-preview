@@ -21,31 +21,18 @@ import { formatarDataHoraCurta } from "../utils/proximaAcao.js";
 // drop (desktop) além do seletor por botão (que continua existindo e é o
 // único jeito no mobile), a lista oficial de Motivos de Perda com campo
 // "Outro" obrigatório, e transferência entre usuários com histórico
-// automático. Próxima ação e checklist (abaixo) continuam só em memória —
-// fora do escopo desta Sprint, registrado para depois.
+// automático. Próxima ação e checklist continuaram só em memória por mais
+// alguns ciclos — ver nota abaixo.
 //
-// Checklist: os textos usados em CHECKLIST_GENERICO/CHECKLIST_VENDA são
-// placeholders — a lista oficial por etapa ainda precisa vir do Guilherme
-// (mesmo padrão já usado para Motivos de Perda antes desta Sprint). A UI já
-// mostra um aviso.
-const CHECKLIST_GENERICO = [
-    "Dados do cliente confirmados",
-    "Necessidade e uso do veículo entendidos",
-    "Próxima ação definida",
-];
-const CHECKLIST_VENDA = [
-    "Contrato assinado",
-    "Documentação do veículo conferida",
-    "Pagamento confirmado",
-    "Entrega agendada",
-];
-function checklistTemplatePorEtapa(etapa) {
-    if (!etapa || etapa.tipo === "perdido")
-        return [];
-    if (etapa.tipo === "ganho")
-        return CHECKLIST_VENDA;
-    return CHECKLIST_GENERICO;
-}
+// Checklist: até o Ciclo 22 (2026-08-12), os itens eram placeholders
+// genéricos por TIPO de etapa (CHECKLIST_GENERICO/CHECKLIST_VENDA), só em
+// memória do navegador, sem persistência. A partir do Ciclo 22, o
+// checklist é real (itens oficiais por etapa nomeada, definidos pelo
+// Guilherme, persistidos no backend) e o próprio SidePanel busca e grava
+// o estado (mesmo padrão já usado para Anotações) — o Pipeline não guarda
+// mais nenhum estado de checklist, só recebe o callback onChecklistMarcado
+// para registrar o evento local na Timeline (ver services/checklist.ts e
+// Checklist.gs).
 function novoEventoId() {
     return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
@@ -66,9 +53,6 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
     const [erro, setErro] = useState(null);
     const [selecionadaId, setSelecionadaId] = useState(null);
     const [timelineEventos, setTimelineEventos] = useState([]);
-    // Chave: `${oportunidadeId}|${etapaId}` -> array de booleans (mesma ordem
-    // do template de checklist daquela etapa). Ausente = nada marcado ainda.
-    const [checklistState, setChecklistState] = useState({});
     // Sprint 1 — estado do drag-and-drop (desktop) e da ação em andamento
     // (mover etapa / transferir), compartilhado entre o board e o SidePanel
     // para não deixar o usuário disparar duas ações de escrita ao mesmo tempo.
@@ -581,19 +565,6 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
             setSalvandoAcao(false);
         }
     }
-    // Passo 8 — checklist da etapa (interativo, itens-placeholder, continua
-    // só em memória — fora do escopo da Sprint 1).
-    function toggleChecklistItem(oportunidadeId, etapaId, index, itens) {
-        const chave = `${oportunidadeId}|${etapaId}`;
-        setChecklistState((prev) => {
-            const atual = prev[chave] ? [...prev[chave]] : itens.map(() => false);
-            atual[index] = !atual[index];
-            if (atual[index]) {
-                registrarEvento(oportunidadeId, `Item do checklist concluído: "${itens[index]}"`, "checklist");
-            }
-            return { ...prev, [chave]: atual };
-        });
-    }
     // --- Drag-and-drop (desktop) ------------------------------------------
     //
     // Sprint 8 "Performance e Estabilidade" (2026-08-10): handleDragStartCard/
@@ -674,14 +645,11 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                 }) }), oportunidadeSelecionada &&
                 (() => {
                     const etapaAtual = etapaPorId(oportunidadeSelecionada.etapaId);
-                    const itensChecklist = checklistTemplatePorEtapa(etapaAtual);
-                    const chaveChecklist = `${oportunidadeSelecionada.id}|${oportunidadeSelecionada.etapaId}`;
-                    const feitoChecklist = checklistState[chaveChecklist] ?? itensChecklist.map(() => false);
                     // Sprint 8: vem do Map memoizado (eventosPorOportunidadeId, já
                     // filtrado e ordenado) em vez de filtrar+ordenar timelineEventos
                     // inteiro de novo a cada render enquanto o painel está aberto.
                     const eventosDaOportunidade = eventosPorOportunidadeId.get(oportunidadeSelecionada.id) ?? [];
-                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, checklistItens: itensChecklist, checklistFeito: feitoChecklist, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onToggleChecklist: (index) => toggleChecklistItem(oportunidadeSelecionada.id, oportunidadeSelecionada.etapaId, index, itensChecklist), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
+                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onChecklistMarcado: (textoItem) => registrarEvento(oportunidadeSelecionada.id, `Item do checklist concluído: "${textoItem}"`, "checklist"), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
                 })(), dropPendente && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => setNnTelefone(e.target.value), placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
                                                     .filter((u) => u.ativo)
                                                     .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Cidade" }), _jsx("input", { type: "text", value: nnCidade, onChange: (e) => setNnCidade(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Ve\u00EDculo de interesse" }), _jsx("input", { type: "text", value: nnVeiculoInteresse, onChange: (e) => setNnVeiculoInteresse(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Anota\u00E7\u00F5es iniciais" }), _jsx("textarea", { value: nnAnotacoes, onChange: (e) => setNnAnotacoes(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: nnProximaAcao, onChange: (e) => setNnProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data da pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "date", value: nnProximaAcaoData, onChange: (e) => setNnProximaAcaoData(e.target.value) })] }), nnErro && _jsx("p", { className: "side-panel__aviso", children: nnErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: salvarNovaNegociacao, disabled: nnSalvando, children: nnSalvando ? "Salvando…" : "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: fecharNovaNegociacao, disabled: nnSalvando, children: "Cancelar" })] })] })] }) }))] }));
