@@ -134,6 +134,8 @@ function mapOportunidade(raw) {
         perdidoEm: textoOuIndefinido(raw.perdido_em),
         perdidoPor: textoOuIndefinido(raw.perdido_por),
         motivoPerdaDescricaoOutro: textoOuIndefinido(raw.motivo_perda_descricao_outro),
+        // Ciclo 22 "Funil Comercial — Bloco 3" (2026-08-12) — ver nota em types/index.ts.
+        responsavelNoMomentoPerdaId: textoOuIndefinido(raw.responsavel_no_momento_perda_id),
         // Sprint 3 "Integração com Estoque do Simples" (2026-08-03) — snapshot
         // gravado por associarVeiculoEstoque_ (ver services/estoque.ts para o
         // porquê de existir um snapshot em vez de só o id).
