@@ -21,6 +21,24 @@
  * "Venda/Documentação" fica de propósito com lista vazia -- arquitetura
  * pronta para receber os itens dessa etapa quando o Guilherme definir
  * (pedido explícito: "não definir agora").
+ *
+ * HOTFIX (2026-08-12, mesmo dia, logo após a publicação inicial do Ciclo
+ * 22): as chaves de CHECKLIST_ITENS_POR_ETAPA_ para "Pré-qualificação",
+ * "Cotação", "Negociação Final" e "Venda/Documentação" foram publicadas
+ * com acentuação (grafia "oficial" em português), mas o nome real gravado
+ * na aba Etapas para essas etapas é sem acento ("Pre-qualificacao",
+ * "Cotacao", "Negociacao Final", "Venda/Documentacao") -- confirmado
+ * consultando listEtapas em produção. montarChecklistDaOportunidade_/
+ * marcarItemChecklist_ buscam por `CHECKLIST_ITENS_POR_ETAPA_[etapa.nome]`,
+ * comparação exata de string -- então a busca nunca batia para essas 4
+ * etapas e devolvia lista vazia silenciosamente ("Sem checklist para esta
+ * etapa" na UI, sem erro nenhum). Só "Tentativa de Contato" e "Visita
+ * Agendada" funcionavam, por não terem acento no nome. Corrigido trocando
+ * as chaves do mapa para a grafia sem acento, idêntica à aba Etapas -- o
+ * campo `texto` (exibido na tela) continua com acentuação normal, só a
+ * CHAVE do objeto (usada na busca) mudou. Encontrado e corrigido durante o
+ * teste ao vivo autenticado deste mesmo ciclo, antes de qualquer uso real
+ * dessas 3 etapas em produção.
  */
 
 // Lista oficial dos itens de checklist por etapa (nome da etapa -> itens).
@@ -31,6 +49,11 @@
 // publicada: isso "perderia" o vínculo com respostas já gravadas na aba
 // ChecklistRespostas. Para corrigir só o texto exibido, mude `texto`
 // mantendo a `chave` como está.
+//
+// IMPORTANTE (hotfix acima): a CHAVE de cada entrada deste mapa (o nome da
+// etapa) deve ser IDÊNTICA, byte a byte, ao campo `nome` gravado na aba
+// Etapas -- nunca a grafia "bonita" em português. Confirme com listEtapas
+// antes de adicionar uma etapa nova aqui.
 var CHECKLIST_ITENS_POR_ETAPA_ = {
   'Tentativa de Contato': [
     { chave: 'tentativa_de_contato:primeiro_contato_realizado', texto: 'Primeiro contato realizado' },
@@ -41,7 +64,7 @@ var CHECKLIST_ITENS_POR_ETAPA_ = {
     { chave: 'tentativa_de_contato:d30', texto: 'D+30' },
     { chave: 'tentativa_de_contato:contato_estabelecido', texto: 'Contato estabelecido' }
   ],
-  'Pré-qualificação': [
+  'Pre-qualificacao': [
     { chave: 'pre_qualificacao:interesse_identificado', texto: 'Interesse identificado' },
     { chave: 'pre_qualificacao:necessidade_compreendida', texto: 'Necessidade compreendida' },
     { chave: 'pre_qualificacao:momento_compra_identificado', texto: 'Momento de compra identificado' },
@@ -49,7 +72,7 @@ var CHECKLIST_ITENS_POR_ETAPA_ = {
     { chave: 'pre_qualificacao:troca_identificada', texto: 'Troca identificada' },
     { chave: 'pre_qualificacao:proximo_passo_definido', texto: 'Próximo passo definido' }
   ],
-  'Cotação': [
+  'Cotacao': [
     { chave: 'cotacao:veiculo_definido', texto: 'Veículo definido' },
     { chave: 'cotacao:forma_pagamento_confirmada', texto: 'Forma de pagamento confirmada' },
     { chave: 'cotacao:simulacao_realizada', texto: 'Simulação realizada, quando aplicável' },
@@ -68,7 +91,7 @@ var CHECKLIST_ITENS_POR_ETAPA_ = {
     { chave: 'visita_agendada:no_show', texto: 'No-show, quando ocorrer' },
     { chave: 'visita_agendada:proximo_passo_definido', texto: 'Próximo passo definido' }
   ],
-  'Negociação Final': [
+  'Negociacao Final': [
     { chave: 'negociacao_final:veiculo_definido', texto: 'Veículo definido' },
     { chave: 'negociacao_final:condicao_comercial_apresentada', texto: 'Condição comercial apresentada' },
     { chave: 'negociacao_final:troca_avaliada', texto: 'Troca avaliada, quando aplicável' },
@@ -80,7 +103,7 @@ var CHECKLIST_ITENS_POR_ETAPA_ = {
     { chave: 'negociacao_final:proximo_passo_definido', texto: 'Próximo passo definido' }
   ],
   // Deliberadamente vazio -- ver nota no topo do arquivo.
-  'Venda/Documentação': []
+  'Venda/Documentacao': []
 };
 
 function listChecklistItensPorEtapaNome_(nomeEtapa) {
