@@ -23,7 +23,9 @@ var ABAS = {
   TIMELINE: 'Timeline',
   CONFIGURACOES: 'Configuracoes',
   // Sprint 5 (2026-08-04) -- modulo WhatsApp, ver WhatsApp.gs.
-  MENSAGENS: 'Mensagens'
+  MENSAGENS: 'Mensagens',
+  // Ciclo 22 "Funil Comercial -- Bloco 1" (2026-08-12) -- ver Checklist.gs.
+  CHECKLIST_RESPOSTAS: 'ChecklistRespostas'
 };
 
 // Sprint 8 "Performance e Estabilidade" (2026-08-10) — antes, toda chamada

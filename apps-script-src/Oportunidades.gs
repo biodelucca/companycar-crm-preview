@@ -100,6 +100,29 @@ function migrarSprint7CorrigirCabecalhoDataInicio_() {
   return { acao: 'corrigido', colunaDataInicio1based: posAC + 1, colunaResponsavelId1based: totalColunas + 1, cabecalhoDepois: cabecalhoDepois };
 }
 
+// Ciclo 22 "Funil Comercial — Bloco 3" (2026-08-12) — migração de schema:
+// adiciona a coluna nova exigida pelo snapshot de responsável no momento da
+// perda (ver moverEtapaOportunidade_ abaixo e a nota em types/index.ts).
+// Idempotente -- mesmo padrão de configurarColunasSprint7_ acima: só
+// adiciona a coluna se ela ainda não existir no cabeçalho, então rodar de
+// novo por engano não duplica nada e nenhuma linha de dado é lida ou
+// alterada. Não é chamada por nenhuma action do Roteador -- executada uma
+// única vez via URL de teste do Apps Script antes da publicação deste
+// Ciclo, mantida no código depois por documentação/idempotência (mesma
+// convenção do Ciclo 19).
+function configurarColunaResponsavelPerda_() {
+  var aba = getAba_(ABAS.OPORTUNIDADES);
+  var cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+  var nomeColuna = 'responsavel_no_momento_perda_id';
+  if (cabecalho.indexOf(nomeColuna) === -1) {
+    var novaCol = aba.getLastColumn() + 1;
+    aba.getRange(1, novaCol).setValue(nomeColuna);
+    cabecalho.push(nomeColuna);
+    return { acao: 'adicionada', coluna1based: novaCol, cabecalho: cabecalho };
+  }
+  return { acao: 'nenhuma', motivo: nomeColuna + ' ja existe no cabecalho -- nada a fazer.', cabecalho: cabecalho };
+}
+
 // Sprint 8 "Performance e Estabilidade" (2026-08-10): cacheada (5min, ver
 // lerAbaComoObjetosCacheada_ em Utils.gs) -- as 8 etapas do pipeline nunca
 // mudam pelo app, mas eram relidas da planilha em todo doGet de leitura E
@@ -311,6 +334,19 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       campos.perdido_em = agora;
       campos.perdido_por = usuarioId || '';
       campos.motivo_perda_descricao_outro = motivo.nome === 'Outro' ? String(motivoPerdaOutroTexto).trim() : '';
+      // Ciclo 22 "Funil Comercial — Bloco 3" (2026-08-12): snapshot de quem
+      // era o responsável pela oportunidade neste EXATO instante -- lido da
+      // própria linha antes de qualquer escrita desta chamada, então não
+      // pode ter sido afetado por uma transferência concorrente (mesmo lock
+      // que protege o resto desta função). Diferente de `perdido_por`
+      // (usuarioId, quem executou a ação) e do `responsavel_id` atual (que
+      // pode mudar depois se a oportunidade for transferida após a perda --
+      // transferirOportunidade_ não bloqueia isso). Coluna opcional: se a
+      // migração configurarColunaResponsavelPerda_ ainda não rodou,
+      // gravarCamposLinha_ simplesmente ignora o campo (mesmo padrão
+      // defensivo já usado em excluido_em/veiculo_estoque_*).
+      var colResponsavelAtual = cabecalho.indexOf('responsavel_id');
+      campos.responsavel_no_momento_perda_id = colResponsavelAtual !== -1 ? encontrada.linhaValores[colResponsavelAtual] : '';
     }
     gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, campos);
 

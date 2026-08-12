@@ -52,7 +52,10 @@ var ACOES_GET = {
   // deste hotfix (SDR/Closer não chegam nem a montar a tela), então não
   // precisou de nenhuma mudança aqui.
   listConversas: listConversas_,
-  listMensagensConversa: function (e) { return listMensagensConversa_(e.parameter.oportunidadeId, e.parameter.telefone); }
+  listMensagensConversa: function (e) { return listMensagensConversa_(e.parameter.oportunidadeId, e.parameter.telefone); },
+  // Ciclo 22 "Funil Comercial -- Bloco 1" (2026-08-12) -- ver Checklist.gs.
+  // Mesma regra de visibilidade de obterAnotacao (leitura por id direto).
+  listChecklist: function (e, usuarioAutenticado) { return obterChecklist_(e.parameter.oportunidadeId, usuarioAutenticado); }
 };
 
 function doGet(e) {
@@ -153,6 +156,10 @@ var ACOES_POST = {
   },
   vincularConversaOportunidade: function (dados) {
     return vincularConversaOportunidade_(dados.telefone, dados.oportunidadeId, dados.usuarioId);
+  },
+  // Ciclo 22 "Funil Comercial -- Bloco 1" (2026-08-12) -- ver Checklist.gs.
+  marcarItemChecklist: function (dados) {
+    return marcarItemChecklist_(dados.oportunidadeId, dados.itemChave, dados.marcado, dados.usuarioId);
   }
 };
 
