@@ -14,9 +14,18 @@ function Root() {
     // guarda qual oportunidade o Pipeline deve pré-selecionar na próxima
     // vez que for montado, e é limpa assim que o Pipeline a consome.
     const [oportunidadeParaAbrirNoPipeline, setOportunidadeParaAbrirNoPipeline] = useState(null);
+    // Ciclo pós-produção (2026-08-13) — item 6 "+ Nova Negociação no
+    // Dashboard": mesma ponte acima, para o Dashboard poder pedir ao
+    // Pipeline (dono real do formulário/modal) que abra o modal já
+    // existente assim que montar — nenhum fluxo novo, só navegação +
+    // auto-abertura do que já existe.
+    const [abrirNovaNegociacaoNoPipeline, setAbrirNovaNegociacaoNoPipeline] = useState(false);
     if (!usuario)
         return _jsx(Login, {});
-    return (_jsxs(AppLayout, { vista: vista, onMudarVista: setVista, children: [vista === "dashboard" && _jsx(Dashboard, { onIrPipeline: () => setVista("pipeline") }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null) })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
+    return (_jsxs(AppLayout, { vista: vista, onMudarVista: setVista, children: [vista === "dashboard" && _jsx(Dashboard, { onIrPipeline: () => setVista("pipeline"), onNovaNegociacao: () => {
+                    setAbrirNovaNegociacaoNoPipeline(true);
+                    setVista("pipeline");
+                } }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null), abrirNovaNegociacaoInicial: abrirNovaNegociacaoNoPipeline, aoConsumirAbrirNovaNegociacaoInicial: () => setAbrirNovaNegociacaoNoPipeline(false) })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
                     setOportunidadeParaAbrirNoPipeline(oportunidadeId);
                     setVista("pipeline");
                 } }))] }));

@@ -122,6 +122,21 @@ button {
   font-weight: 700;
 }
 
+.app-header__logout {
+  background: none;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.app-header__logout:hover {
+  border-color: var(--cor-primaria);
+  color: var(--cor-primaria);
+}
+
 .app-header__menu-btn {
   display: none;
   background: none;
@@ -149,6 +164,21 @@ button {
 .dashboard h1 {
   margin: 0 0 4px;
   font-size: 24px;
+}
+
+/* Ciclo pós-produção (2026-08-13) — item 6: cabeçalho do Dashboard agora
+   divide espaço com o atalho "+ Nova Negociação" (mesmo botão do Pipeline,
+   ver .pipeline__botao-nova). */
+.dashboard__cabecalho {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dashboard__cabecalho h1 {
+  margin: 0;
 }
 
 .dashboard__subtitulo {
@@ -373,8 +403,77 @@ button {
    "+ Nova Negociação" (critério de aceite: botão sempre visível ali). */
 .pipeline__topo {
   display: flex;
-  justify-content: flex-end;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
   padding: 14px 16px 0;
+}
+
+/* Ciclo pós-produção (2026-08-13) — itens 1, 3, 4 e 5: barra do topo do
+   Pipeline dividida em duas metades (filtro/busca à esquerda, atualizar/
+   nova negociação à direita), reaproveitando os mesmos campos de
+   .dashboard__filtros / .side-panel__form por consistência visual. */
+.pipeline__topo-esquerda,
+.pipeline__topo-direita {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pipeline__filtro-responsavel {
+  padding: 8px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: #fff;
+}
+
+.pipeline__busca {
+  padding: 8px 12px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  min-width: 220px;
+}
+
+.pipeline__botao-atualizar {
+  background: none;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13.5px;
+  cursor: pointer;
+  color: inherit;
+}
+
+.pipeline__botao-atualizar:hover:not(:disabled) {
+  border-color: var(--cor-primaria);
+  color: var(--cor-primaria);
+}
+
+.pipeline__botao-atualizar:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.pipeline__ultima-atualizacao {
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .pipeline__topo-esquerda,
+  .pipeline__topo-direita {
+    width: 100%;
+  }
+
+  .pipeline__busca {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
 }
 
 .pipeline__botao-nova {
@@ -726,6 +825,30 @@ button {
   border: 1px solid var(--cor-borda);
   border-radius: 8px;
   padding: 8px 10px;
+}
+
+/* Ciclo pós-produção (2026-08-13) — item 7: mostra a próxima ação atual
+   direto na visão normal da oportunidade (antes só aparecia entrando no
+   modo de edição). Bloco compacto, sem alterar os botões existentes
+   "Editar/Definir próxima ação" logo abaixo. */
+.side-panel__proxima-acao-atual {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  background: var(--cor-fundo);
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+}
+
+.side-panel__proxima-acao-descricao {
+  margin: 0 0 2px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.side-panel__proxima-acao-meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--cor-texto-suave);
 }
 
 .side-panel__form {
