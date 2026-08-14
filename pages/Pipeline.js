@@ -36,13 +36,46 @@ import { formatarDataHoraCurta } from "../utils/proximaAcao.js";
 function novoEventoId() {
     return "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
+// Ciclo pós-produção (2026-08-13) — item 1 "Atualizar Pipeline": formata o
+// horário da última atualização bem-sucedida (manual ou automática) para o
+// texto discreto ao lado do botão "Atualizar".
+function formatarHoraCurta(data) {
+    return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+// Item 5 "Busca de lead": normalizações simples usadas só para comparar o
+// termo digitado contra os dados já carregados — sem chamada nova ao
+// backend, sem acento-insensibilidade (mantém a busca simples, como pedido).
+function normalizarTexto(valor) {
+    return String(valor || "").toLowerCase();
+}
+function normalizarDigitos(valor) {
+    return String(valor || "").replace(/\D/g, "");
+}
+// Item 3 "Filtro por usuário para o Gerente": mesmos dois papéis com visão
+// completa já usados no backend (ver PAPEIS_VISAO_COMPLETA_ em Auth.gs) —
+// cópia deliberada, mesmo padrão de "duas fontes de verdade sincronizadas à
+// mão" já usado em TIPOS_PROXIMA_ACAO (utils/proximaAcao.ts/Oportunidades.gs).
+// Puramente de exibição: SDR/Closer já só recebem a própria carteira do
+// backend (Oportunidades.gs), então o filtro nunca amplia o que alguém pode
+// ver — só deixa o Gerente/Administrador recortar visualmente o que já lhes
+// foi enviado.
+var PAPEIS_VISAO_COMPLETA_PIPELINE = { "Gerente (Owner)": true, "Administrador": true };
+
 // Mesmo breakpoint do CSS (@media max-width: 720px, ver src/index.css) —
 // acima disso o drag-and-drop fica ativo; em telas menores só o seletor
 // por botão no SidePanel funciona (requisito explícito da Sprint 1:
 // "desktop only").
 const LARGURA_MINIMA_DRAG = 721;
-export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial } = {}) {
+export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial, abrirNovaNegociacaoInicial, aoConsumirAbrirNovaNegociacaoInicial } = {}) {
     const { idToken, logout, usuario } = useAuth();
+    // Ciclo pós-produção (2026-08-13) — itens 1, 3, 4, 5: estado novo, todo
+    // ele só de exibição/transporte (nenhuma nova permissão, nenhuma escrita
+    // nova no backend).
+    const [filtroResponsavelId, setFiltroResponsavelId] = useState("");
+    const [termoBusca, setTermoBusca] = useState("");
+    const [atualizando, setAtualizando] = useState(false);
+    const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
+    const podeFiltrarPorResponsavel = !!(usuario && PAPEIS_VISAO_COMPLETA_PIPELINE[usuario.papel]);
     const [etapas, setEtapas] = useState([]);
     const [oportunidades, setOportunidades] = useState([]);
     const [clientes, setClientes] = useState([]);
@@ -95,10 +128,23 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         window.addEventListener("resize", aoRedimensionar);
         return () => window.removeEventListener("resize", aoRedimensionar);
     }, []);
-    useEffect(() => {
+    // Ciclo pós-produção (2026-08-13) — item 1 "Atualizar Pipeline": o corpo
+    // do carregamento (antes só dentro do useEffect de montagem) virou uma
+    // função reaproveitável, chamada tanto na montagem quanto pelo botão
+    // "Atualizar" e pela atualização automática (item 4) — mesmas 7
+    // chamadas de sempre, mesma lógica de junção da Timeline, nenhuma ação
+    // nova no backend. `comSpinner` distingue a tela cheia de "Carregando
+    // pipeline..." (só na primeira carga) de uma atualização silenciosa em
+    // segundo plano (spinner discreto no botão via `atualizando`, sem
+    // esconder o Kanban já visível).
+    const carregarDados = useCallback((comSpinner) => {
         if (!idToken)
-            return;
-        Promise.all([
+            return Promise.resolve();
+        if (comSpinner)
+            setCarregando(true);
+        else
+            setAtualizando(true);
+        return Promise.all([
             listEtapas(idToken),
             listOportunidades(idToken),
             listClientes(idToken),
@@ -139,6 +185,8 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                 dataHora: o.criadoEm,
             }));
             setTimelineEventos([...eventosCriacao, ...timelineResp]);
+            setUltimaAtualizacao(new Date());
+            setErro(null);
         })
             .catch((e) => {
             // Ver comentário equivalente em Dashboard.tsx — mesmo bug, mesmo
@@ -148,10 +196,56 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                 logout();
                 return;
             }
-            setErro("Não foi possível carregar o pipeline. Tente recarregar a página.");
+            // Item 4: uma atualização em segundo plano que falhar não deve
+            // substituir o Kanban já visível por uma mensagem de erro — só a
+            // primeira carga (comSpinner) mostra erro de tela cheia. Uma
+            // atualização silenciosa que falhar simplesmente tenta de novo
+            // no próximo ciclo, sem incomodar quem está usando o sistema.
+            if (comSpinner) {
+                setErro("Não foi possível carregar o pipeline. Tente recarregar a página.");
+            }
         })
-            .finally(() => setCarregando(false));
+            .finally(() => {
+            if (comSpinner)
+                setCarregando(false);
+            else
+                setAtualizando(false);
+        });
     }, [idToken, logout]);
+    useEffect(() => {
+        carregarDados(true);
+    }, [carregarDados]);
+    // Item 1 "Atualizar Pipeline" — clique manual do botão.
+    function aoClicarAtualizar() {
+        if (atualizando || carregando)
+            return;
+        void carregarDados(false);
+    }
+    // Item 4 "Atualização automática do Pipeline" — solução conservadora:
+    // só atualiza quando a aba está visível E nenhuma interação está em
+    // andamento (painel lateral fechado, nenhum modal de Nova Negociação
+    // ou de motivo de perda aberto). Como nada é tocado enquanto qualquer
+    // um desses estiver aberto, nunca há campo em edição, painel ou modal
+    // para interromper — satisfaz todos os requisitos pedidos sem precisar
+    // de nenhuma lógica de merge campo a campo. Intervalo de 3 minutos:
+    // volume de uso é baixo (~30 leads/dia, poucos usuários simultâneos),
+    // suficiente para não deixar ninguém olhando dado muito desatualizado
+    // por muito tempo sem gerar chamadas excessivas ao backend. Sem
+    // WebSocket/tempo real, como pedido.
+    useEffect(() => {
+        if (!idToken)
+            return;
+        var INTERVALO_ATUALIZACAO_MS = 3 * 60 * 1000;
+        var intervalo = window.setInterval(() => {
+            if (typeof document !== "undefined" && document.visibilityState !== "visible")
+                return;
+            var algumaInteracaoAberta = selecionadaId !== null || novaNegociacaoAberta || dropPendente !== null;
+            if (algumaInteracaoAberta)
+                return;
+            void carregarDados(false);
+        }, INTERVALO_ATUALIZACAO_MS);
+        return () => window.clearInterval(intervalo);
+    }, [idToken, carregarDados, selecionadaId, novaNegociacaoAberta, dropPendente]);
     useEffect(() => {
         if (carregando || !oportunidadeInicialId)
             return;
@@ -159,6 +253,21 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         aoConsumirOportunidadeInicial?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [carregando, oportunidadeInicialId]);
+    // Ciclo pós-produção (2026-08-13) — item 6 "+ Nova Negociação no
+    // Dashboard": mesmo padrão de ponte acima (oportunidadeInicialId), só
+    // que abrindo o modal de Nova Negociação já existente em vez de
+    // selecionar uma oportunidade — nenhum fluxo novo, reaproveita
+    // abrirNovaNegociacao() tal como já usado pelo botão do próprio
+    // Pipeline (função declarada mais abaixo neste componente; acessível
+    // aqui por hoisting de function declaration, mesmo padrão já usado
+    // pelo resto do arquivo).
+    useEffect(() => {
+        if (carregando || !abrirNovaNegociacaoInicial)
+            return;
+        abrirNovaNegociacao();
+        aoConsumirAbrirNovaNegociacaoInicial?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [carregando, abrirNovaNegociacaoInicial]);
     // Sprint 8 "Performance e Estabilidade" (2026-08-10): mapas id -> objeto/
     // lista construídos uma vez por mudança de dado (useMemo), em vez de
     // clientePorId/etapaPorId fazerem um Array.find() (O(n)) toda vez que
@@ -170,17 +279,57 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
     // é barato e inofensivo.
     const clientesPorId = useMemo(() => new Map(clientes.map((c) => [c.id, c])), [clientes]);
     const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
+    // Ciclo pós-produção (2026-08-13) — itens 3 e 5: recorte visual do
+    // Kanban por responsável (só Gerente/Administrador, ver
+    // podeFiltrarPorResponsavel acima) e por termo de busca (nome do
+    // cliente, telefone, veículo de interesse/estoque e o texto livre do
+    // veículo na troca, onde a placa costuma aparecer -- ver nota em
+    // services/oportunidades.ts sobre veiculoTrocaDescricao). Filtra sobre
+    // `oportunidades` já carregado/autorizado -- nenhuma chamada nova ao
+    // backend, nenhuma mudança de permissão: SDR/Closer já só têm a própria
+    // carteira aqui (Oportunidades.gs), então a busca deles nunca alcança
+    // dado de outra pessoa; para o Gerente, a busca respeita o filtro de
+    // responsável porque opera sobre o resultado dele (aplicado antes).
+    const oportunidadesVisiveis = useMemo(() => {
+        let lista = oportunidades;
+        if (podeFiltrarPorResponsavel && filtroResponsavelId) {
+            lista = lista.filter((o) => o.responsavelId === filtroResponsavelId);
+        }
+        const termo = termoBusca.trim();
+        if (!termo)
+            return lista;
+        const termoTexto = normalizarTexto(termo);
+        const termoDigitos = normalizarDigitos(termo);
+        return lista.filter((o) => {
+            const cliente = clientesPorId.get(o.clienteId);
+            const camposTexto = [cliente?.nome, o.veiculoInteresse, o.veiculoTrocaDescricao, o.veiculoEstoqueModeloVersao];
+            if (camposTexto.some((v) => v && normalizarTexto(v).includes(termoTexto)))
+                return true;
+            if (termoDigitos.length >= 3) {
+                const telefoneDigitos = normalizarDigitos(cliente?.telefone);
+                if (telefoneDigitos.includes(termoDigitos))
+                    return true;
+            }
+            return false;
+        });
+    }, [oportunidades, podeFiltrarPorResponsavel, filtroResponsavelId, termoBusca, clientesPorId]);
     // Agrupamento do Kanban: antes, cada coluna fazia `oportunidades.filter(...)`
     // dentro do próprio loop de render (etapas.map(...)) -- uma varredura
     // completa do array de oportunidades por coluna, em TODO render do
     // Pipeline (inclusive por uma tecla digitada num modal aberto, sem
     // relação nenhuma com o Kanban). Agora é um único Map construído só
     // quando `oportunidades`/`etapas` mudam de verdade.
+    //
+    // Ciclo pós-produção (2026-08-13): passou a agrupar `oportunidadesVisiveis`
+    // (recorte por responsável/busca) em vez de `oportunidades` bruto -- só
+    // afeta o que aparece nas colunas do Kanban; toda ação de escrita
+    // (mover etapa, transferir etc.) continua operando sobre `oportunidades`
+    // completo, nunca sobre o recorte.
     const oportunidadesPorEtapaId = useMemo(() => {
         const mapa = new Map();
         for (const etapa of etapas)
             mapa.set(etapa.id, []);
-        for (const o of oportunidades) {
+        for (const o of oportunidadesVisiveis) {
             const lista = mapa.get(o.etapaId);
             if (lista)
                 lista.push(o);
@@ -188,7 +337,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
                 mapa.set(o.etapaId, [o]);
         }
         return mapa;
-    }, [oportunidades, etapas]);
+    }, [oportunidadesVisiveis, etapas]);
     // Eventos de Timeline agrupados e já ordenados por oportunidade -- antes
     // recalculado (filter + sort) a cada render enquanto o painel lateral
     // estava aberto, mesmo para mudanças de estado sem nenhuma relação com a
@@ -634,7 +783,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial 
         setDropPendente(null);
     }
     const oportunidadeDropPendente = dropPendente ? oportunidades.find((o) => o.id === dropPendente.oportunidadeId) : null;
-    return (_jsxs("div", { className: "pipeline", children: [_jsx("div", { className: "pipeline__topo", children: _jsx("button", { className: "pipeline__botao-nova", onClick: abrirNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }) }), acaoErro && _jsx("p", { className: "pipeline__aviso-acao", children: acaoErro }), _jsx("div", { className: "pipeline__board", children: etapas.map((etapa) => {
+    return (_jsxs("div", { className: "pipeline", children: [_jsxs("div", { className: "pipeline__topo", children: [_jsxs("div", { className: "pipeline__topo-esquerda", children: [podeFiltrarPorResponsavel && (_jsxs("select", { className: "pipeline__filtro-responsavel", value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), "aria-label": "Filtrar por respons\u00E1vel", children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.filter((u) => u.ativo).map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })), _jsx("input", { type: "text", className: "pipeline__busca", placeholder: "Buscar por nome, telefone ou placa\u2026", value: termoBusca, onChange: (e) => setTermoBusca(e.target.value), "aria-label": "Buscar lead" })] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), _jsx("button", { className: "pipeline__botao-nova", onClick: abrirNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" })] })] }), acaoErro && _jsx("p", { className: "pipeline__aviso-acao", children: acaoErro }), _jsx("div", { className: "pipeline__board", children: etapas.map((etapa) => {
                     // Sprint 8: vem do Map memoizado (oportunidadesPorEtapaId) em vez
                     // de filtrar o array inteiro de novo a cada render/coluna.
                     const opsDaEtapa = oportunidadesPorEtapaId.get(etapa.id) ?? [];
