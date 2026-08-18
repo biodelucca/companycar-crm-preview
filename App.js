@@ -25,6 +25,11 @@ function Root() {
     return (_jsxs(AppLayout, { vista: vista, onMudarVista: setVista, children: [vista === "dashboard" && _jsx(Dashboard, { onIrPipeline: () => setVista("pipeline"), onNovaNegociacao: () => {
                     setAbrirNovaNegociacaoNoPipeline(true);
                     setVista("pipeline");
+                }, onAbrirOportunidade: (oportunidadeId) => {
+                    // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 6: mesma
+                    // ponte já usada por Conversas abaixo, sem estado novo.
+                    setOportunidadeParaAbrirNoPipeline(oportunidadeId);
+                    setVista("pipeline");
                 } }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null), abrirNovaNegociacaoInicial: abrirNovaNegociacaoNoPipeline, aoConsumirAbrirNovaNegociacaoInicial: () => setAbrirNovaNegociacaoNoPipeline(false) })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
                     setOportunidadeParaAbrirNoPipeline(oportunidadeId);
                     setVista("pipeline");

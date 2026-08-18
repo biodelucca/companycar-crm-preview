@@ -392,6 +392,20 @@ button {
   color: var(--cor-texto-suave);
 }
 
+/* Ciclo "Refinamentos Operacionais" (2026-08-18) — item 6: itens de
+   Próxima Ação no Dashboard passam a abrir a oportunidade no Pipeline. */
+.dashboard__lista-acoes-item--clicavel {
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.dashboard__lista-acoes-item--clicavel:hover {
+  background: var(--cor-fundo);
+}
+
 /* ---------- Pipeline ---------- */
 
 .pipeline-loading {
@@ -436,6 +450,16 @@ button {
   border-radius: 8px;
   font-size: 13.5px;
   min-width: 220px;
+}
+
+/* Ciclo "Refinamentos Operacionais" (2026-08-18) — item 1: mesmo visual
+   do filtro de responsável, reaproveitado para o toggle de ordenação. */
+.pipeline__ordenacao {
+  padding: 8px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  background: #fff;
 }
 
 .pipeline__botao-atualizar {
