@@ -153,6 +153,13 @@ function mapOportunidade(raw) {
         proximaAcaoTipo: textoOuIndefinido(raw.proxima_acao_tipo),
         proximaAcaoOutroTexto: textoOuIndefinido(raw.proxima_acao_outro_texto),
         proximaAcaoResponsavelId: textoOuIndefinido(raw.proxima_acao_responsavel_id),
+        // Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) —
+        // snapshot da REABERTURA mais recente, mesmo padrão de perdidoEm/
+        // perdidoPor acima. Histórico completo de todos os ciclos perda/
+        // reabertura vive na Timeline (tipoEvento "reabertura") — estes dois
+        // campos só representam "a última vez que isso aconteceu".
+        reabertoEm: textoOuIndefinido(raw.reaberto_em),
+        reabertoPor: textoOuIndefinido(raw.reaberto_por),
     };
 }
 // --- Services ----------------------------------------------------------
@@ -215,6 +222,22 @@ export async function moverEtapaOportunidade(dados, idToken) {
             novaEtapaId: dados.novaEtapaId,
             motivoPerdaId: dados.motivoPerdaId,
             motivoPerdaOutroTexto: dados.motivoPerdaOutroTexto,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+}
+// Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) — mesmo
+// padrão {ação disparada aqui, quem atualiza o estado local é o chamador}
+// de moverEtapaOportunidade acima. Ver reabrirOportunidade_ em
+// Oportunidades.gs — grava só etapa_id/atualizado_em/reaberto_em/
+// reaberto_por, nunca toca nos campos da perda anterior.
+export async function reabrirOportunidade(dados, idToken) {
+    await apiClient.request({
+        action: "reabrirOportunidade",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            novaEtapaId: dados.novaEtapaId,
             usuarioId: dados.usuarioId,
         },
         idToken: idToken ?? undefined,
