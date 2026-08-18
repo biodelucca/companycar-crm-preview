@@ -1,7 +1,7 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, atualizarProximaAcao, concluirProximaAcao, } from "../services/oportunidades.js";
-import { associarVeiculoEstoque } from "../services/estoque.js";
+import { associarVeiculoEstoque, listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
 import { OpportunityCard } from "../components/OpportunityCard.js";
@@ -73,6 +73,11 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     // nova no backend).
     const [filtroResponsavelId, setFiltroResponsavelId] = useState("");
     const [termoBusca, setTermoBusca] = useState("");
+    // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 1: ordenação dos
+    // cards por data de criação (criadoEm), só visual — não mexe em etapa,
+    // prioridade ou qualquer regra de negócio. "recentes" = mais novo
+    // primeiro (padrão); "antigas" = mais antigo primeiro.
+    const [ordemData, setOrdemData] = useState("recentes");
     const [atualizando, setAtualizando] = useState(false);
     const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
     const podeFiltrarPorResponsavel = !!(usuario && PAPEIS_VISAO_COMPLETA_PIPELINE[usuario.papel]);
@@ -112,6 +117,18 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     const [nnResponsavelId, setNnResponsavelId] = useState("");
     const [nnCidade, setNnCidade] = useState("");
     const [nnVeiculoInteresse, setNnVeiculoInteresse] = useState("");
+    // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 4: vínculo
+    // opcional com um veículo real do estoque, já na criação — mesma busca/
+    // serviço já usados pelo SidePanel para associar depois (services/
+    // estoque.js), sem lógica nova. Puramente opcional: se o usuário não
+    // usar esta seção, o fluxo fica idêntico ao de hoje (só texto livre em
+    // nnVeiculoInteresse, sem veiculoEstoqueId nenhum).
+    const [nnVeiculoEstoqueId, setNnVeiculoEstoqueId] = useState(null);
+    const [nnBuscaVeiculoAberta, setNnBuscaVeiculoAberta] = useState(false);
+    const [nnTermoBuscaVeiculo, setNnTermoBuscaVeiculo] = useState("");
+    const [nnEstoqueLista, setNnEstoqueLista] = useState([]);
+    const [nnEstoqueCarregando, setNnEstoqueCarregando] = useState(false);
+    const [nnEstoqueErro, setNnEstoqueErro] = useState(null);
     const [nnAnotacoes, setNnAnotacoes] = useState("");
     const [nnProximaAcao, setNnProximaAcao] = useState("");
     const [nnProximaAcaoData, setNnProximaAcaoData] = useState("");
@@ -121,6 +138,43 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     // aceite "destacar visualmente o novo card por alguns segundos") — some
     // sozinho depois de 4s, sem precisar de nenhuma ação do usuário.
     const [destaqueId, setDestaqueId] = useState(null);
+    // Item 4 — busca do estoque só quando o usuário abre a seção (mesmo
+    // padrão "sob demanda" já usado em SidePanel.js, ver nota de Sprint 8
+    // lá: evita uma chamada de rede completa toda vez que o modal Nova
+    // Negociação abre, mesmo quando ninguém vai vincular veículo nenhum).
+    useEffect(() => {
+        if (!idToken || !nnBuscaVeiculoAberta)
+            return;
+        let cancelado = false;
+        setNnEstoqueCarregando(true);
+        setNnEstoqueErro(null);
+        listEstoque(idToken)
+            .then((lista) => {
+            if (!cancelado)
+                setNnEstoqueLista(lista);
+        })
+            .catch(() => {
+            if (!cancelado)
+                setNnEstoqueErro("Não foi possível consultar o estoque agora.");
+        })
+            .finally(() => {
+            if (!cancelado)
+                setNnEstoqueCarregando(false);
+        });
+        return () => {
+            cancelado = true;
+        };
+    }, [nnBuscaVeiculoAberta, idToken]);
+    const nnResultadosBusca = useMemo(() => (nnBuscaVeiculoAberta ? buscarVeiculosEstoque(nnEstoqueLista, nnTermoBuscaVeiculo).slice(0, 25) : []), [nnBuscaVeiculoAberta, nnEstoqueLista, nnTermoBuscaVeiculo]);
+    function selecionarVeiculoEstoqueNovaNegociacao(veiculo) {
+        setNnVeiculoEstoqueId(veiculo.id);
+        setNnVeiculoInteresse([veiculo.marca, veiculo.modeloVersao, veiculo.ano].filter(Boolean).join(" "));
+        setNnBuscaVeiculoAberta(false);
+        setNnTermoBuscaVeiculo("");
+    }
+    function removerVeiculoEstoqueNovaNegociacao() {
+        setNnVeiculoEstoqueId(null);
+    }
     useEffect(() => {
         function aoRedimensionar() {
             setIsDesktop(window.innerWidth >= LARGURA_MINIMA_DRAG);
@@ -160,7 +214,9 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
             setClientes(clientesResp);
             setUsuarios(usuariosResp);
             setMotivosPerda(motivosPerdaResp);
-            setOrigens(origensResp);
+            // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 3: ordem
+            // alfabética é só de exibição (ids/dados históricos intocados).
+            setOrigens([...origensResp].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
             // Timeline: semeia com um evento de criação por oportunidade (para a
             // aba não começar vazia, mesma lógica desde o Passo 6) e junta com o
             // que já está persistido de verdade na planilha (mudança de etapa e
@@ -336,8 +392,17 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
             else
                 mapa.set(o.etapaId, [o]);
         }
+        // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 1: ordena os
+        // cards de cada coluna por criadoEm (data de criação do lead — sempre
+        // presente e estável, ao contrário de atualizadoEm, que muda a
+        // qualquer edição). Só reordena a exibição; não altera moverEtapa,
+        // dedupe ou qualquer outra lógica.
+        const multiplicador = ordemData === "antigas" ? 1 : -1;
+        for (const lista of mapa.values()) {
+            lista.sort((a, b) => multiplicador * String(a.criadoEm ?? "").localeCompare(String(b.criadoEm ?? "")));
+        }
         return mapa;
-    }, [oportunidadesVisiveis, etapas]);
+    }, [oportunidadesVisiveis, etapas, ordemData]);
     // Eventos de Timeline agrupados e já ordenados por oportunidade -- antes
     // recalculado (filter + sort) a cada render enquanto o painel lateral
     // estava aberto, mesmo para mudanças de estado sem nenhuma relação com a
@@ -589,6 +654,10 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
         setNnResponsavelId("");
         setNnCidade("");
         setNnVeiculoInteresse("");
+        setNnVeiculoEstoqueId(null);
+        setNnBuscaVeiculoAberta(false);
+        setNnTermoBuscaVeiculo("");
+        setNnEstoqueErro(null);
         setNnAnotacoes("");
         setNnProximaAcao("");
         setNnProximaAcaoData("");
@@ -621,6 +690,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                 responsavelId: nnResponsavelId,
                 cidade: nnCidade.trim() || undefined,
                 veiculoInteresse: nnVeiculoInteresse.trim() || undefined,
+                veiculoEstoqueId: nnVeiculoEstoqueId || undefined,
                 anotacoesIniciais: nnAnotacoes.trim() || undefined,
                 proximaAcao: nnProximaAcao.trim() || undefined,
                 proximaAcaoData: nnProximaAcaoData || undefined,
@@ -783,7 +853,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
         setDropPendente(null);
     }
     const oportunidadeDropPendente = dropPendente ? oportunidades.find((o) => o.id === dropPendente.oportunidadeId) : null;
-    return (_jsxs("div", { className: "pipeline", children: [_jsxs("div", { className: "pipeline__topo", children: [_jsxs("div", { className: "pipeline__topo-esquerda", children: [podeFiltrarPorResponsavel && (_jsxs("select", { className: "pipeline__filtro-responsavel", value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), "aria-label": "Filtrar por respons\u00E1vel", children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.filter((u) => u.ativo).map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })), _jsx("input", { type: "text", className: "pipeline__busca", placeholder: "Buscar por nome, telefone ou placa\u2026", value: termoBusca, onChange: (e) => setTermoBusca(e.target.value), "aria-label": "Buscar lead" })] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), _jsx("button", { className: "pipeline__botao-nova", onClick: abrirNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" })] })] }), acaoErro && _jsx("p", { className: "pipeline__aviso-acao", children: acaoErro }), _jsx("div", { className: "pipeline__board", children: etapas.map((etapa) => {
+    return (_jsxs("div", { className: "pipeline", children: [_jsxs("div", { className: "pipeline__topo", children: [_jsxs("div", { className: "pipeline__topo-esquerda", children: [podeFiltrarPorResponsavel && (_jsxs("select", { className: "pipeline__filtro-responsavel", value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), "aria-label": "Filtrar por respons\u00E1vel", children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.filter((u) => u.ativo).map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })), _jsx("input", { type: "text", className: "pipeline__busca", placeholder: "Buscar por nome, telefone ou placa\u2026", value: termoBusca, onChange: (e) => setTermoBusca(e.target.value), "aria-label": "Buscar lead" }), _jsxs("select", { className: "pipeline__ordenacao", value: ordemData, onChange: (e) => setOrdemData(e.target.value), "aria-label": "Ordenar cards por data", children: [_jsx("option", { value: "recentes", children: "Mais recentes primeiro" }), _jsx("option", { value: "antigas", children: "Mais antigas primeiro" })] })] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), _jsx("button", { className: "pipeline__botao-nova", onClick: abrirNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" })] })] }), acaoErro && _jsx("p", { className: "pipeline__aviso-acao", children: acaoErro }), _jsx("div", { className: "pipeline__board", children: etapas.map((etapa) => {
                     // Sprint 8: vem do Map memoizado (oportunidadesPorEtapaId) em vez
                     // de filtrar o array inteiro de novo a cada render/coluna.
                     const opsDaEtapa = oportunidadesPorEtapaId.get(etapa.id) ?? [];
@@ -801,5 +871,5 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                     return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onChecklistMarcado: (textoItem) => registrarEvento(oportunidadeSelecionada.id, `Item do checklist concluído: "${textoItem}"`, "checklist"), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
                 })(), dropPendente && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => setNnTelefone(e.target.value), placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
                                                     .filter((u) => u.ativo)
-                                                    .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Cidade" }), _jsx("input", { type: "text", value: nnCidade, onChange: (e) => setNnCidade(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Ve\u00EDculo de interesse" }), _jsx("input", { type: "text", value: nnVeiculoInteresse, onChange: (e) => setNnVeiculoInteresse(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Anota\u00E7\u00F5es iniciais" }), _jsx("textarea", { value: nnAnotacoes, onChange: (e) => setNnAnotacoes(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: nnProximaAcao, onChange: (e) => setNnProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data da pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "date", value: nnProximaAcaoData, onChange: (e) => setNnProximaAcaoData(e.target.value) })] }), nnErro && _jsx("p", { className: "side-panel__aviso", children: nnErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: salvarNovaNegociacao, disabled: nnSalvando, children: nnSalvando ? "Salvando…" : "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: fecharNovaNegociacao, disabled: nnSalvando, children: "Cancelar" })] })] })] }) }))] }));
+                                                    .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Cidade" }), _jsx("input", { type: "text", value: nnCidade, onChange: (e) => setNnCidade(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Ve\u00EDculo de interesse" }), _jsx("input", { type: "text", value: nnVeiculoInteresse, onChange: (e) => setNnVeiculoInteresse(e.target.value) })] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Ve\u00EDculo do estoque (opcional)" }), nnVeiculoEstoqueId && (_jsxs("p", { className: "side-panel__proxima-acao-meta", children: ["Vinculado ao estoque.", " ", _jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: removerVeiculoEstoqueNovaNegociacao, children: "Remover v\u00EDnculo" })] })), !nnVeiculoEstoqueId && !nnBuscaVeiculoAberta && (_jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => setNnBuscaVeiculoAberta(true), children: "Vincular ve\u00EDculo do estoque" })), !nnVeiculoEstoqueId && nnBuscaVeiculoAberta && (_jsxs("div", { className: "side-panel__form", children: [_jsx("input", { type: "text", placeholder: "Buscar por marca, modelo/vers\u00E3o ou ano\u2026", value: nnTermoBuscaVeiculo, onChange: (e) => setNnTermoBuscaVeiculo(e.target.value), autoFocus: true }), nnEstoqueCarregando && _jsx("p", { className: "side-panel__vazio-aba", children: "Carregando estoque\u2026" }), !nnEstoqueCarregando && !nnEstoqueErro && (_jsxs("ul", { className: "side-panel__estoque-resultados", children: [nnResultadosBusca.length === 0 && (_jsx("li", { className: "side-panel__vazio-aba", children: "Nenhum ve\u00EDculo encontrado." })), nnResultadosBusca.map((v) => (_jsxs("li", { className: "side-panel__estoque-item", children: [v.imagemPrincipal && _jsx("img", { src: v.imagemPrincipal, alt: v.modeloVersao ?? "Ve\u00EDculo" }), _jsx("div", { className: "side-panel__estoque-item-info", children: _jsx("strong", { children: [v.marca, v.modeloVersao, v.ano].filter(Boolean).join(" ") }) }), _jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: () => selecionarVeiculoEstoqueNovaNegociacao(v), children: "Selecionar" })] }, v.id)))] })), nnEstoqueErro && _jsx("p", { className: "side-panel__aviso", children: nnEstoqueErro }), _jsx("div", { className: "side-panel__form-acoes", children: _jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => { setNnBuscaVeiculoAberta(false); setNnTermoBuscaVeiculo(""); }, children: "Cancelar" }) })] }))] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Anota\u00E7\u00F5es iniciais" }), _jsx("textarea", { value: nnAnotacoes, onChange: (e) => setNnAnotacoes(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: nnProximaAcao, onChange: (e) => setNnProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data e hora da pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "datetime-local", value: nnProximaAcaoData, onChange: (e) => setNnProximaAcaoData(e.target.value) })] }), nnErro && _jsx("p", { className: "side-panel__aviso", children: nnErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: salvarNovaNegociacao, disabled: nnSalvando, children: nnSalvando ? "Salvando…" : "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: fecharNovaNegociacao, disabled: nnSalvando, children: "Cancelar" })] })] })] }) }))] }));
 }

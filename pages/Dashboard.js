@@ -51,7 +51,7 @@ function agruparContagem(itens, chaveDe, nomesPorId, ordemPersonalizada) {
 }
 // Tela exclusiva do Dashboard (visão do gerente) — visão rápida do funil
 // ao logar, com os indicadores mínimos da Sprint 2.
-export function Dashboard({ onIrPipeline, onNovaNegociacao }) {
+export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade }) {
     const { usuario, idToken, logout } = useAuth();
     const [etapas, setEtapas] = useState([]);
     const [oportunidades, setOportunidades] = useState([]);
@@ -87,7 +87,9 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao }) {
             setEtapas([...etapasResp].sort((a, b) => a.ordem - b.ordem));
             setOportunidades(oportunidadesResp);
             setUsuarios(usuariosResp);
-            setOrigens(origensResp);
+            // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 3: ordem
+            // alfabética é só de exibição (ids/dados históricos intocados).
+            setOrigens([...origensResp].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
             setMotivosPerda(motivosPerdaResp);
             setClientes(clientesResp);
         })
@@ -164,12 +166,12 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao }) {
                             const respAcaoId = o.proximaAcaoResponsavelId || o.responsavelId;
                             const dataAcao = o.proximaAcaoData ?? "";
                             const hora = dataAcao.length > 10 ? dataAcao.slice(11, 16) : "";
-                            return (_jsxs("li", { children: [_jsxs("span", { className: "dashboard__lista-acoes-principal", children: [nomesClientes.get(o.clienteId) ?? "Cliente não identificado", " \u00B7 ", o.veiculoInteresse] }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: [descricaoProximaAcao(o) || "Sem descrição", " \u00B7 ", nomesUsuarios.get(respAcaoId) ?? "—", " \u00B7 venceu em", " ", dataAcao.slice(0, 10), hora ? ` às ${hora}` : ""] })] }, o.id));
+                            return (_jsxs("li", { className: onAbrirOportunidade ? "dashboard__lista-acoes-item--clicavel" : undefined, onClick: onAbrirOportunidade ? () => onAbrirOportunidade(o.id) : undefined, role: onAbrirOportunidade ? "button" : undefined, tabIndex: onAbrirOportunidade ? 0 : undefined, children: [_jsxs("span", { className: "dashboard__lista-acoes-principal", children: [nomesClientes.get(o.clienteId) ?? "Cliente não identificado", " \u00B7 ", o.veiculoInteresse] }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: [descricaoProximaAcao(o) || "Sem descrição", " \u00B7 ", nomesUsuarios.get(respAcaoId) ?? "—", " \u00B7 venceu em", " ", dataAcao.slice(0, 10), hora ? ` às ${hora}` : ""] })] }, o.id));
                         }) })] })), acoesDoDia.length > 0 && (_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("ul", { className: "dashboard__lista-acoes", children: acoesDoDia.map((o) => {
                             const respAcaoId = o.proximaAcaoResponsavelId || o.responsavelId;
                             const dataAcao = o.proximaAcaoData ?? "";
                             const hora = dataAcao.length > 10 ? dataAcao.slice(11, 16) : "";
-                            return (_jsxs("li", { children: [_jsxs("span", { className: "dashboard__lista-acoes-principal", children: [nomesClientes.get(o.clienteId) ?? "Cliente não identificado", " \u00B7 ", o.veiculoInteresse] }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: [descricaoProximaAcao(o) || "Sem descrição", " \u00B7 ", nomesUsuarios.get(respAcaoId) ?? "—", hora ? ` · ${hora}` : ""] })] }, o.id));
+                            return (_jsxs("li", { className: onAbrirOportunidade ? "dashboard__lista-acoes-item--clicavel" : undefined, onClick: onAbrirOportunidade ? () => onAbrirOportunidade(o.id) : undefined, role: onAbrirOportunidade ? "button" : undefined, tabIndex: onAbrirOportunidade ? 0 : undefined, children: [_jsxs("span", { className: "dashboard__lista-acoes-principal", children: [nomesClientes.get(o.clienteId) ?? "Cliente não identificado", " \u00B7 ", o.veiculoInteresse] }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: [descricaoProximaAcao(o) || "Sem descrição", " \u00B7 ", nomesUsuarios.get(respAcaoId) ?? "—", hora ? ` · ${hora}` : ""] })] }, o.id));
                         }) })] })), _jsxs("div", { className: "dashboard__grade-indicadores", children: [_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por etapa" }), _jsx(ListaContagem, { linhas: porEtapa, maior: maiorPorEtapa, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por respons\u00E1vel" }), _jsx(ListaContagem, { linhas: porResponsavel, maior: maiorPorResponsavel, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por origem" }), _jsx(ListaContagem, { linhas: porOrigem, maior: maiorPorOrigem, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Motivos de perda" }), _jsx(ListaContagem, { linhas: motivosDePerda, maior: maiorMotivo, vazio: "Sem perdas no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Perdas por etapa" }), _jsx(ListaContagem, { linhas: perdasPorEtapa, maior: maiorPerdaEtapa, vazio: "Sem perdas no recorte atual." })] })] }), _jsx("button", { className: "dashboard__cta", onClick: onIrPipeline, children: "Ver Pipeline completo \u2192" })] }));
 }
 // Lista "rótulo — barra proporcional — quantidade", reaproveitada pelos
