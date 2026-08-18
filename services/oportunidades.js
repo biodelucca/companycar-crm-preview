@@ -241,6 +241,9 @@ export async function criarOportunidade(dados, idToken) {
             responsavelId: dados.responsavelId,
             cidade: dados.cidade,
             veiculoInteresse: dados.veiculoInteresse,
+            // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 4: vínculo
+            // opcional com o estoque já na criação (ver criarOportunidade_).
+            veiculoEstoqueId: dados.veiculoEstoqueId,
             anotacoesIniciais: dados.anotacoesIniciais,
             proximaAcao: dados.proximaAcao,
             proximaAcaoData: dados.proximaAcaoData,
