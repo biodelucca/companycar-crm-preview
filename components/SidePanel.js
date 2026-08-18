@@ -251,6 +251,16 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
         if (checklistMarcandoChave)
             return; // evita clique duplo enquanto uma marcação está em voo
         const novoMarcado = !item.marcado;
+        const itensAntesDoClique = checklistItens;
+        // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 2: atualização
+        // otimista. O checkbox muda na hora, sem esperar a viagem completa ao
+        // backend (causa raiz da lentidão percebida — ver diagnóstico: nenhuma
+        // mudança na gravação real, marcarItemChecklist_ continua sendo a
+        // única fonte de verdade; a lista aqui só é atualizada de novo (ou
+        // revertida, em caso de erro) quando a resposta real chega).
+        setChecklistItens((atuais) => atuais.map((i) => i.chave === item.chave
+            ? { ...i, marcado: novoMarcado, marcadoEm: novoMarcado ? new Date().toISOString() : null }
+            : i));
         setChecklistMarcandoChave(item.chave);
         setChecklistErro(null);
         try {
@@ -260,6 +270,7 @@ export function SidePanel({ oportunidade, cliente, responsavel, usuarios = [], e
                 onChecklistMarcado?.(item.texto);
         }
         catch {
+            setChecklistItens(itensAntesDoClique);
             setChecklistErro("Não foi possível atualizar este item agora.");
         }
         finally {
