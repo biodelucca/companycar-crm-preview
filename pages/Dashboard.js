@@ -139,11 +139,33 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
     const abertas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ativa"), [oportunidadesFiltradas, etapasPorId]);
     const perdidas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "perdido"), [oportunidadesFiltradas, etapasPorId]);
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    // Hotfix 2026-08-18: comparação precisa ser ciente de HORÁRIO (não só
+    // data), senão uma ação de hoje já vencida (ex.: hoje 09:00, agora
+    // 14:00) nunca cai em "vencidas" — sempre empata em "hoje". Construído
+    // a partir do horário LOCAL do navegador (não toISOString/UTC) porque
+    // proximaAcaoData é salvo como texto local "YYYY-MM-DDTHH:mm"
+    // (normalizarProximaAcaoData_, backend). Comparação puramente textual
+    // (sem `new Date(string)`) para não reintroduzir bugs de fuso horário.
+    // Registros antigos sem horário (10 caracteres, só "YYYY-MM-DD")
+    // mantêm o comportamento anterior de comparação só por data.
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const agora = new Date();
+    const agoraStr = `${agora.getFullYear()}-${pad2(agora.getMonth() + 1)}-${pad2(agora.getDate())}T${pad2(agora.getHours())}:${pad2(agora.getMinutes())}`;
+    const hojeStr = agoraStr.slice(0, 10);
     const acoesVencidas = useMemo(() => abertas
-        .filter((o) => o.proximaAcaoData && o.proximaAcaoData.slice(0, 10) < hojeStr)
-        .sort((a, b) => (a.proximaAcaoData ?? "").localeCompare(b.proximaAcaoData ?? "")), [abertas, hojeStr]);
-    const acoesDoDia = useMemo(() => abertas.filter((o) => o.proximaAcaoData && o.proximaAcaoData.slice(0, 10) === hojeStr), [abertas, hojeStr]);
+        .filter((o) => {
+            const d = o.proximaAcaoData;
+            if (!d)
+                return false;
+            return d.length > 10 ? d.slice(0, 16) < agoraStr : d.slice(0, 10) < hojeStr;
+        })
+        .sort((a, b) => (a.proximaAcaoData ?? "").localeCompare(b.proximaAcaoData ?? "")), [abertas, agoraStr, hojeStr]);
+    const acoesDoDia = useMemo(() => abertas.filter((o) => {
+        const d = o.proximaAcaoData;
+        if (!d)
+            return false;
+        return d.length > 10 ? d.slice(0, 10) === hojeStr && d.slice(0, 16) >= agoraStr : d.slice(0, 10) === hojeStr;
+    }), [abertas, hojeStr, agoraStr]);
     const porEtapa = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.etapaId, nomesEtapas, porOrdemDeEtapa), [oportunidadesFiltradas, nomesEtapas, porOrdemDeEtapa]);
     const porResponsavel = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.responsavelId, nomesUsuarios), [oportunidadesFiltradas, nomesUsuarios]);
     const porOrigem = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.origemId, nomesOrigens), [oportunidadesFiltradas, nomesOrigens]);
