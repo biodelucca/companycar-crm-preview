@@ -262,6 +262,10 @@ export async function criarOportunidade(dados, idToken) {
             telefone: dados.telefone,
             origemId: dados.origemId,
             responsavelId: dados.responsavelId,
+            // Melhoria isolada "Etapa inicial na Nova Negociação" (2026-08-22)
+            // — opcional; ausente/undefined preserva o default do backend
+            // (Novo Lead), sem exigir nenhuma mudança nos chamadores antigos.
+            etapaInicialId: dados.etapaInicialId,
             cidade: dados.cidade,
             veiculoInteresse: dados.veiculoInteresse,
             // Ciclo "Refinamentos Operacionais" (2026-08-18) — item 4: vínculo
