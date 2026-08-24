@@ -160,6 +160,12 @@ function mapOportunidade(raw) {
         // campos só representam "a última vez que isso aconteceu".
         reabertoEm: textoOuIndefinido(raw.reaberto_em),
         reabertoPor: textoOuIndefinido(raw.reaberto_por),
+        // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) —
+        // mesmo padrão de reabertoEm/reabertoPor acima. visitaAgendadaEm
+        // sempre reflete o agendamento ATUAL (o mais recente); histórico de
+        // reagendamentos vive na Timeline (tipoEvento "visita_reagendada").
+        visitaAgendadaEm: textoOuIndefinido(raw.visita_agendada_em),
+        visitaAgendadaPor: textoOuIndefinido(raw.visita_agendada_por),
     };
 }
 // --- Services ----------------------------------------------------------
@@ -223,9 +229,32 @@ export async function moverEtapaOportunidade(dados, idToken) {
             motivoPerdaId: dados.motivoPerdaId,
             motivoPerdaOutroTexto: dados.motivoPerdaOutroTexto,
             usuarioId: dados.usuarioId,
+            // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24)
+            // — só relevante quando novaEtapaId é a etapa "Visita Agendada"
+            // (validação/exigência fica no backend, ver moverEtapaOportunidade_
+            // em Oportunidades.gs); undefined nos demais casos, sem efeito.
+            visitaAgendadaEm: dados.visitaAgendadaEm,
         },
         idToken: idToken ?? undefined,
     });
+}
+// Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) —
+// reagendamento da visita já marcada (a entrada inicial na etapa é
+// coberta por moverEtapaOportunidade acima). Ver reagendarVisita_ em
+// Oportunidades.gs, que grava o novo valor e registra o reagendamento na
+// Timeline preservando o evento anterior. Mesmo padrão de retorno de
+// atualizarProximaAcao abaixo (mapOportunidade do objeto atualizado).
+export async function reagendarVisita(dados, idToken) {
+    const raw = await apiClient.request({
+        action: "reagendarVisita",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            visitaAgendadaEm: dados.visitaAgendadaEm,
+            usuarioId: dados.usuarioId,
+        },
+        idToken: idToken ?? undefined,
+    });
+    return mapOportunidade(raw.oportunidade);
 }
 // Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) — mesmo
 // padrão {ação disparada aqui, quem atualiza o estado local é o chamador}
