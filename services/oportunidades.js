@@ -166,6 +166,12 @@ function mapOportunidade(raw) {
         // reagendamentos vive na Timeline (tipoEvento "visita_reagendada").
         visitaAgendadaEm: textoOuIndefinido(raw.visita_agendada_em),
         visitaAgendadaPor: textoOuIndefinido(raw.visita_agendada_por),
+        // Melhoria isolada "Data da venda" (2026-08-24) -- gravado uma única
+        // vez, na primeira entrada em uma etapa tipo 'ganho' (ver
+        // moverEtapaOportunidade_ no backend). Nunca é sobrescrito por
+        // edições posteriores da oportunidade nem depende de atualizadoEm.
+        vendidoEm: textoOuIndefinido(raw.vendido_em),
+        vendidoPor: textoOuIndefinido(raw.vendido_por),
     };
 }
 // --- Services ----------------------------------------------------------
