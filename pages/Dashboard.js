@@ -1,10 +1,19 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { listClientes, listEtapas, listMotivosPerda, listOportunidades, listOrigens, listUsuarios } from "../services/oportunidades.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
 import { primeiroNome } from "../utils/nomes.js";
 import { descricaoProximaAcao } from "../utils/proximaAcao.js";
+// Melhoria isolada "Botão Atualizar no Dashboard" (2026-08-25): mesmo
+// helper local já usado no Pipeline (formatarHoraCurta, ver Pipeline.js)
+// para o texto discreto "Atualizado às HH:MM" ao lado do botão. Duplicado
+// aqui de propósito (mesmo padrão de "duas fontes de verdade sincronizadas
+// à mão" já usado em outros pontos deste arquivo/projeto) em vez de mexer
+// em Pipeline.js, que está fora do escopo desta melhoria.
+function formatarHoraCurta(data) {
+    return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
 const OPCOES_PERIODO = [
     { valor: "todos", rotulo: "Todo o período" },
     { valor: "hoje", rotulo: "Hoje" },
@@ -72,10 +81,30 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     const [filtroPeriodo, setFiltroPeriodo] = useState("todos");
     const [filtroResponsavelId, setFiltroResponsavelId] = useState("");
     const [filtroOrigemId, setFiltroOrigemId] = useState("");
-    useEffect(() => {
+    // Melhoria isolada "Botão Atualizar no Dashboard" (2026-08-25): mesmo
+    // padrão já usado no Pipeline (ver carregarDados/aoClicarAtualizar em
+    // Pipeline.js) — o corpo do carregamento (antes só dentro do useEffect
+    // de montagem) virou uma função reaproveitável, chamada tanto na
+    // montagem quanto pelo clique manual no botão "Atualizar". `comSpinner`
+    // distingue a tela cheia de "Carregando dashboard..." (só na primeira
+    // carga) de uma atualização silenciosa em segundo plano (spinner
+    // discreto no botão via `atualizando`, sem esconder cards/filtros já
+    // visíveis, sem recarregar a página). Investigação prévia (pedida
+    // antes de implementar): o Dashboard não tem hoje nenhum mecanismo de
+    // atualização automática (ao contrário do Pipeline, que tem um
+    // setInterval de 3 minutos — ver Pipeline.js) — esta melhoria não cria
+    // nenhum auto-refresh novo nem mexe em periodicidade nenhuma, só
+    // adiciona a atualização manual pedida.
+    const [atualizando, setAtualizando] = useState(false);
+    const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
+    const carregarDados = useCallback((comSpinner) => {
         if (!idToken)
-            return;
-        Promise.all([
+            return Promise.resolve();
+        if (comSpinner)
+            setCarregando(true);
+        else
+            setAtualizando(true);
+        return Promise.all([
             listEtapas(idToken),
             listOportunidades(idToken),
             listUsuarios(idToken),
@@ -92,6 +121,8 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
             setOrigens([...origensResp].sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
             setMotivosPerda(motivosPerdaResp);
             setClientes(clientesResp);
+            setUltimaAtualizacao(new Date());
+            setErro(null);
         })
             .catch((e) => {
             // Mesmo bug/conserto já documentado em Pipeline.tsx: catch ausente
@@ -100,10 +131,36 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
                 logout();
                 return;
             }
-            setErro("Não foi possível carregar o dashboard. Tente recarregar a página.");
+            // Mesmo critério já usado no Pipeline: uma atualização em
+            // segundo plano que falhar não deve substituir os cards/
+            // filtros já visíveis por uma mensagem de erro de tela cheia —
+            // só a primeira carga (comSpinner) aciona o tratamento de erro
+            // existente (`erro`, mesma mensagem/estilo de sempre). Fora
+            // desse caso, nenhum estado de dado é tocado neste caminho, então
+            // tudo que já estava na tela permanece exatamente como estava.
+            if (comSpinner) {
+                setErro("Não foi possível carregar o dashboard. Tente recarregar a página.");
+            }
         })
-            .finally(() => setCarregando(false));
+            .finally(() => {
+            if (comSpinner)
+                setCarregando(false);
+            else
+                setAtualizando(false);
+        });
     }, [idToken, logout]);
+    useEffect(() => {
+        carregarDados(true);
+    }, [carregarDados]);
+    // Clique manual do botão "Atualizar" — mesma proteção contra clique
+    // duplo (ignora clique enquanto já há uma carga em andamento) já usada
+    // no Pipeline (aoClicarAtualizar). Reaproveita carregarDados — nenhuma
+    // segunda lógica de busca de dados foi criada.
+    function aoClicarAtualizar() {
+        if (atualizando || carregando)
+            return;
+        void carregarDados(false);
+    }
     // Sprint 8 "Performance e Estabilidade" (2026-08-10): os mapas de nome,
     // o recorte filtrado e os 9 indicadores eram recalculados (várias
     // passagens completas sobre `oportunidades`, com sort/allocations) em
@@ -180,7 +237,7 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
         return _jsx("p", { className: "pipeline-loading", children: "Carregando dashboard..." });
     if (erro)
         return _jsx("p", { className: "pipeline-loading", children: erro });
-    return (_jsxs("div", { className: "dashboard", children: [_jsxs("div", { className: "dashboard__cabecalho", children: [_jsxs("h1", { children: ["Ol\u00E1, ", primeiroNome(usuario?.nome) || "—"] }), onNovaNegociacao && (_jsx("button", { className: "pipeline__botao-nova", onClick: onNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }))] }), _jsx("p", { className: "dashboard__subtitulo", children: "Painel gerencial \u2014 vis\u00E3o di\u00E1ria da opera\u00E7\u00E3o comercial." }), _jsxs("div", { className: "dashboard__filtros", children: [_jsxs("label", { children: ["Per\u00EDodo", _jsx("select", { value: filtroPeriodo, onChange: (e) => setFiltroPeriodo(e.target.value), children: OPCOES_PERIODO.map((o) => (_jsx("option", { value: o.valor, children: o.rotulo }, o.valor))) })] }), _jsxs("label", { children: ["Respons\u00E1vel", _jsxs("select", { value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { children: ["Origem", _jsxs("select", { value: filtroOrigemId, onChange: (e) => setFiltroOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Todas as origens" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] })] }), _jsxs("div", { className: "dashboard__cards", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es em aberto" }), _jsx("strong", { className: "dashboard__card-valor", children: abertas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es perdidas" }), _jsx("strong", { className: "dashboard__card-valor", children: perdidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesVencidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesDoDia.length })] })] }), acoesVencidas.length > 0 && (_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("ul", { className: "dashboard__lista-acoes", children: acoesVencidas.map((o) => {
+    return (_jsxs("div", { className: "dashboard", children: [_jsxs("div", { className: "dashboard__cabecalho", children: [_jsxs("h1", { children: ["Ol\u00E1, ", primeiroNome(usuario?.nome) || "—"] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), onNovaNegociacao && (_jsx("button", { className: "pipeline__botao-nova", onClick: onNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }))]})] }), _jsx("p", { className: "dashboard__subtitulo", children: "Painel gerencial \u2014 vis\u00E3o di\u00E1ria da opera\u00E7\u00E3o comercial." }), _jsxs("div", { className: "dashboard__filtros", children: [_jsxs("label", { children: ["Per\u00EDodo", _jsx("select", { value: filtroPeriodo, onChange: (e) => setFiltroPeriodo(e.target.value), children: OPCOES_PERIODO.map((o) => (_jsx("option", { value: o.valor, children: o.rotulo }, o.valor))) })] }), _jsxs("label", { children: ["Respons\u00E1vel", _jsxs("select", { value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { children: ["Origem", _jsxs("select", { value: filtroOrigemId, onChange: (e) => setFiltroOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Todas as origens" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] })] }), _jsxs("div", { className: "dashboard__cards", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es em aberto" }), _jsx("strong", { className: "dashboard__card-valor", children: abertas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es perdidas" }), _jsx("strong", { className: "dashboard__card-valor", children: perdidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesVencidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesDoDia.length })] })] }), acoesVencidas.length > 0 && (_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("ul", { className: "dashboard__lista-acoes", children: acoesVencidas.map((o) => {
                             // Sprint 7 "Próximas Ações" (2026-08-07) — descrição
                             // estruturada (tipo/"Outro") com fallback pro texto legado, e
                             // responsável DA AÇÃO (pode ser diferente do responsável da
