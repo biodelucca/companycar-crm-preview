@@ -39,7 +39,7 @@ const MENSAGENS_ERRO_LOGIN = {
                                                                                                         email: resposta.usuario.email,
                                                                                                                     papel: resposta.usuario.papel,
                                                                                                                                 ativo: Boolean(resposta.usuario.ativo),
-                                                                                                                                            criadoEm: resposta.usuario.criado_em,
+                                                                                                                                            criadoEm: resposta.usuario.criado_em, visualizaTodasOportunidades: resposta.usuario.visualiza_todas_oportunidades === true || String(resposta.usuario.visualiza_todas_oportunidades).toUpperCase() === "TRUE",
                                                                                                                                                     },
                                                                                                                                                             sessionToken: resposta.sessionToken,
                                                                                                                                                                 };
