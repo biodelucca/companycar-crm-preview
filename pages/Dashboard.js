@@ -6,6 +6,7 @@ import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
 import { primeiroNome } from "../utils/nomes.js";
 import { descricaoProximaAcao } from "../utils/proximaAcao.js";
 import { agoraSaoPaulo, dataCurta, horaCurta, montarAgenda } from "../utils/agenda.js";
+import { OPCOES_PERIODO, descreverPeriodo, dentroDoPeriodo, periodoAlcancaVendasSemData, resolverPeriodo } from "../utils/periodo.js";
 // Melhoria isolada "Botão Atualizar no Dashboard" (2026-08-25): mesmo
 // helper local já usado no Pipeline (formatarHoraCurta, ver Pipeline.js)
 // para o texto discreto "Atualizado às HH:MM" ao lado do botão. Duplicado
@@ -14,29 +15,6 @@ import { agoraSaoPaulo, dataCurta, horaCurta, montarAgenda } from "../utils/agen
 // em Pipeline.js, que está fora do escopo desta melhoria.
 function formatarHoraCurta(data) {
     return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-const OPCOES_PERIODO = [
-    { valor: "todos", rotulo: "Todo o período" },
-    { valor: "hoje", rotulo: "Hoje" },
-    { valor: "7d", rotulo: "Últimos 7 dias" },
-    { valor: "30d", rotulo: "Últimos 30 dias" },
-    { valor: "mes", rotulo: "Este mês" },
-];
-function dentroDoPeriodo(dataIso, periodo) {
-    if (periodo === "todos")
-        return true;
-    const data = new Date(dataIso);
-    if (Number.isNaN(data.getTime()))
-        return true; // dado sem data não deve sumir do dashboard por um bug de parsing
-    const agora = new Date();
-    if (periodo === "hoje")
-        return data.toDateString() === agora.toDateString();
-    if (periodo === "mes")
-        return data.getFullYear() === agora.getFullYear() && data.getMonth() === agora.getMonth();
-    const dias = periodo === "7d" ? 7 : 30;
-    const corte = new Date(agora);
-    corte.setDate(corte.getDate() - dias);
-    return data >= corte;
 }
 // Agrupa e conta oportunidades por uma chave (etapa/responsável/origem/
 // motivo), resolvendo o rótulo legível via um mapa id -> nome. Ordena do
@@ -90,6 +68,11 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     const [filtroPeriodo, setFiltroPeriodo] = useState("todos");
     const [filtroResponsavelId, setFiltroResponsavelId] = useState("");
     const [filtroOrigemId, setFiltroOrigemId] = useState("");
+    // Melhoria 6 (2026-10-07): datas do período personalizado ("YYYY-MM-DD",
+    // dias civis de America/Sao_Paulo). Ficam no estado do componente — o
+    // botão Atualizar só recarrega os dados e mantém período/filtros.
+    const [personalizadoInicio, setPersonalizadoInicio] = useState("");
+    const [personalizadoFim, setPersonalizadoFim] = useState("");
     // Melhoria 5 "Agenda de Próximas Ações" (2026-10-07): filtro de
     // responsável PRÓPRIO da agenda (independente dos filtros de período/
     // origem/responsável dos indicadores acima — a agenda responde "o que
@@ -195,23 +178,34 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     const nomesEtapas = useMemo(() => new Map(etapas.map((e) => [e.id, e.nome])), [etapas]);
     const ordemEtapas = useMemo(() => new Map(etapas.map((e) => [e.id, e.ordem])), [etapas]);
     const porOrdemDeEtapa = useMemo(() => (a, b) => (ordemEtapas.get(a) ?? 0) - (ordemEtapas.get(b) ?? 0), [ordemEtapas]);
-    // Filtro único aplicado antes de calcular qualquer indicador — garante
-    // que todos os números do dashboard vêm do mesmo recorte de dados
-    // (critério de aceite: "os números permanecerem consistentes com o
-    // Pipeline" — sem filtro nenhum, "por etapa" abaixo bate exatamente com
-    // a contagem de cada coluna do Pipeline).
+    // Melhoria 6 "Filtro de período no Dashboard" (2026-10-07) — cada
+    // indicador usa a data que responde à sua pergunta (ver utils/periodo.js):
+    //   leads recebidos e "situação dos leads recebidos" (etapa/responsável/
+    //   origem/conversão = COORTE DE ENTRADA) -> criado_em;
+    //   vendas no período -> vendido_em; perdas (card, motivos, etapa) ->
+    //   perdido_em das oportunidades hoje em Perdido;
+    //   em aberto, ações vencidas/de hoje (e a Agenda) -> OPERACIONAIS, sem
+    //   período. Origem e Responsável (carteira ATUAL) valem para todos.
+    const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
+    const agoraStr = agoraSaoPaulo();
+    const hojeStr = agoraStr.slice(0, 10);
+    const periodo = useMemo(() => resolverPeriodo(filtroPeriodo, hojeStr, personalizadoInicio, personalizadoFim), [filtroPeriodo, hojeStr, personalizadoInicio, personalizadoFim]);
+    const periodoValido = !periodo.erro;
+    // Base comum: só Origem e Responsável (sem período).
     const oportunidadesFiltradas = useMemo(() => oportunidades.filter((o) => {
         if (filtroResponsavelId && o.responsavelId !== filtroResponsavelId)
             return false;
         if (filtroOrigemId && o.origemId !== filtroOrigemId)
             return false;
-        if (!dentroDoPeriodo(o.criadoEm, filtroPeriodo))
-            return false;
         return true;
-    }), [oportunidades, filtroResponsavelId, filtroOrigemId, filtroPeriodo]);
-    const etapasPorId = useMemo(() => new Map(etapas.map((e) => [e.id, e])), [etapas]);
+    }), [oportunidades, filtroResponsavelId, filtroOrigemId]);
     const abertas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ativa"), [oportunidadesFiltradas, etapasPorId]);
-    const perdidas = useMemo(() => oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "perdido"), [oportunidadesFiltradas, etapasPorId]);
+    const recebidas = useMemo(() => (periodoValido ? oportunidadesFiltradas.filter((o) => dentroDoPeriodo(o.criadoEm, periodo)) : []), [oportunidadesFiltradas, periodo, periodoValido]);
+    const vendas = useMemo(() => (periodoValido ? oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ganho" && dentroDoPeriodo(o.vendidoEm, periodo)) : []), [oportunidadesFiltradas, etapasPorId, periodo, periodoValido]);
+    const perdidas = useMemo(() => (periodoValido ? oportunidadesFiltradas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "perdido" && dentroDoPeriodo(o.perdidoEm, periodo)) : []), [oportunidadesFiltradas, etapasPorId, periodo, periodoValido]);
+    const coorteVendidas = recebidas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ganho").length;
+    const coorteEmAberto = recebidas.filter((o) => etapasPorId.get(o.etapaId)?.tipo === "ativa").length;
+    const taxaConversao = recebidas.length > 0 ? coorteVendidas / recebidas.length : null;
     // Hotfix 2026-08-18: comparação precisa ser ciente de HORÁRIO (não só
     // data), senão uma ação de hoje já vencida (ex.: hoje 09:00, agora
     // 14:00) nunca cai em "vencidas" — sempre empata em "hoje". Construído
@@ -225,8 +219,6 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     // (agoraSaoPaulo, utils/agenda.js) em vez do relógio local do navegador —
     // mesmo formato textual "YYYY-MM-DDTHH:mm" de antes, só a fonte do
     // relógio mudou, para os cards e a agenda nunca divergirem por fuso.
-    const agoraStr = agoraSaoPaulo();
-    const hojeStr = agoraStr.slice(0, 10);
     const acoesVencidas = useMemo(() => abertas
         .filter((o) => {
             const d = o.proximaAcaoData;
@@ -250,9 +242,9 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
     const usuariosAtivos = useMemo(() => usuarios.filter((u) => u.ativo), [usuarios]);
     const filtroAgendaEfetivo = podeFiltrarAgenda && usuariosAtivos.some((u) => u.id === agendaRespId) ? agendaRespId : "";
     const agenda = useMemo(() => montarAgenda(oportunidades, etapasPorId, { agoraStr, filtroResponsavelId: filtroAgendaEfetivo }), [oportunidades, etapasPorId, agoraStr, filtroAgendaEfetivo]);
-    const porEtapa = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.etapaId, nomesEtapas, porOrdemDeEtapa), [oportunidadesFiltradas, nomesEtapas, porOrdemDeEtapa]);
-    const porResponsavel = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.responsavelId, nomesUsuarios), [oportunidadesFiltradas, nomesUsuarios]);
-    const porOrigem = useMemo(() => agruparContagem(oportunidadesFiltradas, (o) => o.origemId, nomesOrigens), [oportunidadesFiltradas, nomesOrigens]);
+    const porEtapa = useMemo(() => agruparContagem(recebidas, (o) => o.etapaId, nomesEtapas, porOrdemDeEtapa), [recebidas, nomesEtapas, porOrdemDeEtapa]);
+    const porResponsavel = useMemo(() => agruparContagem(recebidas, (o) => o.responsavelId, nomesUsuarios), [recebidas, nomesUsuarios]);
+    const porOrigem = useMemo(() => agruparContagem(recebidas, (o) => o.origemId, nomesOrigens), [recebidas, nomesOrigens]);
     const motivosDePerda = useMemo(() => agruparContagem(perdidas, (o) => o.motivoPerdaId, nomesMotivos), [perdidas, nomesMotivos]);
     const perdasPorEtapa = useMemo(() => agruparContagem(perdidas, (o) => o.etapaOrigemPerdaId, nomesEtapas, porOrdemDeEtapa), [perdidas, nomesEtapas, porOrdemDeEtapa]);
     const maiorPorEtapa = Math.max(1, ...porEtapa.map((l) => l.quantidade));
@@ -264,7 +256,7 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
         return _jsx("p", { className: "pipeline-loading", children: "Carregando dashboard..." });
     if (erro)
         return _jsx("p", { className: "pipeline-loading", children: erro });
-    return (_jsxs("div", { className: "dashboard", children: [_jsxs("div", { className: "dashboard__cabecalho", children: [_jsxs("h1", { children: ["Ol\u00E1, ", primeiroNome(usuario?.nome) || "—"] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), onNovaNegociacao && (_jsx("button", { className: "pipeline__botao-nova", onClick: onNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }))]})] }), _jsx("p", { className: "dashboard__subtitulo", children: "Painel gerencial \u2014 vis\u00E3o di\u00E1ria da opera\u00E7\u00E3o comercial." }), _jsxs("div", { className: "dashboard__filtros", children: [_jsxs("label", { children: ["Per\u00EDodo", _jsx("select", { value: filtroPeriodo, onChange: (e) => setFiltroPeriodo(e.target.value), children: OPCOES_PERIODO.map((o) => (_jsx("option", { value: o.valor, children: o.rotulo }, o.valor))) })] }), _jsxs("label", { children: ["Respons\u00E1vel", _jsxs("select", { value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { children: ["Origem", _jsxs("select", { value: filtroOrigemId, onChange: (e) => setFiltroOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Todas as origens" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] })] }), _jsxs("div", { className: "dashboard__cards", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es em aberto" }), _jsx("strong", { className: "dashboard__card-valor", children: abertas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es perdidas" }), _jsx("strong", { className: "dashboard__card-valor", children: perdidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesVencidas.length })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesDoDia.length })] })] }), _jsxs("section", { className: "dashboard__secao agenda", "aria-label": "Agenda de pr\u00F3ximas a\u00E7\u00F5es", children: [_jsxs("div", { className: "agenda__cabecalho", children: [_jsx("h2", { className: "dashboard__secao-titulo agenda__titulo", children: "Agenda" }), podeFiltrarAgenda && (_jsxs("select", { className: "agenda__filtro", value: filtroAgendaEfetivo, onChange: (e) => setAgendaRespId(e.target.value), "aria-label": "Filtrar agenda por respons\u00E1vel", children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuariosAtivos.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] }))] }), GRUPOS_AGENDA.map((g) => {
+    return (_jsxs("div", { className: "dashboard", children: [_jsxs("div", { className: "dashboard__cabecalho", children: [_jsxs("h1", { children: ["Ol\u00E1, ", primeiroNome(usuario?.nome) || "—"] }), _jsxs("div", { className: "pipeline__topo-direita", children: [_jsx("button", { className: "pipeline__botao-atualizar", onClick: aoClicarAtualizar, disabled: atualizando || carregando, children: atualizando ? "Atualizando\u2026" : "\u21BB Atualizar" }), ultimaAtualizacao && (_jsxs("span", { className: "pipeline__ultima-atualizacao", children: ["Atualizado \u00E0s ", formatarHoraCurta(ultimaAtualizacao)] })), onNovaNegociacao && (_jsx("button", { className: "pipeline__botao-nova", onClick: onNovaNegociacao, children: "+ Nova Negocia\u00E7\u00E3o" }))]})] }), _jsx("p", { className: "dashboard__subtitulo", children: "Painel gerencial \u2014 vis\u00E3o di\u00E1ria da opera\u00E7\u00E3o comercial." }), _jsxs("div", { className: "dashboard__filtros", children: [_jsxs("label", { children: ["Per\u00EDodo", _jsx("select", { value: filtroPeriodo, onChange: (e) => { const v = e.target.value; setFiltroPeriodo(v); if (v === "personalizado" && !personalizadoInicio && !personalizadoFim) { setPersonalizadoInicio(`${hojeStr.slice(0, 8)}01`); setPersonalizadoFim(hojeStr); } }, children: OPCOES_PERIODO.map((o) => (_jsx("option", { value: o.valor, children: o.rotulo }, o.valor))) })] }), ...(filtroPeriodo === "personalizado" ? [_jsxs("label", { children: ["Data inicial", _jsx("input", { type: "date", value: personalizadoInicio, onChange: (e) => setPersonalizadoInicio(e.target.value), "aria-label": "Data inicial do período", "aria-invalid": !periodoValido })] }, "pers-ini"), _jsxs("label", { children: ["Data final", _jsx("input", { type: "date", value: personalizadoFim, onChange: (e) => setPersonalizadoFim(e.target.value), "aria-label": "Data final do período", "aria-invalid": !periodoValido })] }, "pers-fim")] : []), _jsxs("label", { children: ["Respons\u00E1vel", _jsxs("select", { value: filtroResponsavelId, onChange: (e) => setFiltroResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuarios.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { children: ["Origem", _jsxs("select", { value: filtroOrigemId, onChange: (e) => setFiltroOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Todas as origens" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] })] }), _jsxs("div", { className: "dashboard__periodo-info", children: [periodoValido ? (_jsxs("span", { children: ["Per\u00EDodo analisado: ", descreverPeriodo(periodo), filtroPeriodo !== "todos" ? " (fuso America/Sao_Paulo)" : ""] })) : (_jsx("span", { className: "dashboard__aviso dashboard__aviso--erro", role: "alert", children: periodo.erro })), periodoValido && periodoAlcancaVendasSemData(periodo) && (_jsx("span", { className: "dashboard__aviso", children: "O hist\u00F3rico de vendas anterior a 24/08/2026 pode estar incompleto (a data da venda s\u00F3 \u00E9 registrada desde essa data)." }))] }), _jsxs("div", { className: "dashboard__cards dashboard__cards--analiticos", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Leads recebidos" }), _jsx("strong", { className: "dashboard__card-valor", children: periodoValido ? recebidas.length : "\u2014" }), _jsx("span", { className: "dashboard__card-sub", children: "criados no per\u00EDodo" })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Vendas no per\u00EDodo" }), _jsx("strong", { className: "dashboard__card-valor", children: periodoValido ? vendas.length : "\u2014" }), _jsx("span", { className: "dashboard__card-sub", children: "data da venda no per\u00EDodo" })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Convers\u00E3o da coorte" }), _jsx("strong", { className: "dashboard__card-valor", children: periodoValido ? taxaConversao === null ? "\u2014" : `${(taxaConversao * 100).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%` : "\u2014" }), _jsx("span", { className: "dashboard__card-sub", children: periodoValido ? `${coorteVendidas} de ${recebidas.length} leads recebidos \u00B7 ${coorteEmAberto} ainda em aberto` : "" })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es perdidas" }), _jsx("strong", { className: "dashboard__card-valor", children: periodoValido ? perdidas.length : "\u2014" }), _jsx("span", { className: "dashboard__card-sub", children: "perda registrada no per\u00EDodo" })] })] }), _jsxs("div", { className: "dashboard__cards", children: [_jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Negocia\u00E7\u00F5es em aberto" }), _jsx("strong", { className: "dashboard__card-valor", children: abertas.length }), _jsx("span", { className: "dashboard__card-sub", children: "agora (n\u00E3o depende do per\u00EDodo)" })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es vencidas" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesVencidas.length }), _jsx("span", { className: "dashboard__card-sub", children: "agora" })] }), _jsxs("div", { className: "dashboard__card", children: [_jsx("span", { className: "dashboard__card-label", children: "Pr\u00F3ximas a\u00E7\u00F5es de hoje" }), _jsx("strong", { className: "dashboard__card-valor", children: acoesDoDia.length }), _jsx("span", { className: "dashboard__card-sub", children: "agora" })] })] }), _jsxs("section", { className: "dashboard__secao agenda", "aria-label": "Agenda de pr\u00F3ximas a\u00E7\u00F5es", children: [_jsxs("div", { className: "agenda__cabecalho", children: [_jsx("h2", { className: "dashboard__secao-titulo agenda__titulo", children: "Agenda" }), podeFiltrarAgenda && (_jsxs("select", { className: "agenda__filtro", value: filtroAgendaEfetivo, onChange: (e) => setAgendaRespId(e.target.value), "aria-label": "Filtrar agenda por respons\u00E1vel", children: [_jsx("option", { value: "", children: "Todos os respons\u00E1veis" }), usuariosAtivos.map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] }))] }), GRUPOS_AGENDA.map((g) => {
                 const itens = agenda[g.chave];
                 const visiveis = agendaMostrarTodos[g.chave] ? itens : itens.slice(0, LIMITE_INICIAL_AGENDA);
                 return (_jsxs("div", { className: `agenda__grupo agenda__grupo--${g.chave}`, children: [_jsxs("h3", { className: "agenda__grupo-titulo", children: [g.rotulo, _jsx("span", { className: "agenda__grupo-contagem", children: itens.length })] }), itens.length === 0 ? (_jsx("p", { className: "agenda__vazio", children: g.vazio })) : (_jsx("ul", { className: "dashboard__lista-acoes agenda__lista", children: visiveis.map(({ oportunidade: o, respAcaoId, dataAcao }) => {
@@ -273,7 +265,7 @@ export function Dashboard({ onIrPipeline, onNovaNegociacao, onAbrirOportunidade 
                                 const abrir = onAbrirOportunidade ? () => onAbrirOportunidade(o.id) : undefined;
                                 return (_jsxs("li", { className: onAbrirOportunidade ? "dashboard__lista-acoes-item--clicavel agenda__item" : "agenda__item", onClick: abrir, onKeyDown: abrir ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); abrir(); } } : undefined, role: abrir ? "button" : undefined, tabIndex: abrir ? 0 : undefined, children: [_jsx("span", { className: "agenda__quando", children: quando }), _jsxs("span", { className: "agenda__corpo", children: [_jsx("span", { className: "dashboard__lista-acoes-principal", children: descricaoProximaAcao(o) || "Sem descri\u00E7\u00E3o" }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: [nomesClientes.get(o.clienteId) ?? "Cliente n\u00E3o identificado", o.veiculoInteresse ? ` \u2014 ${o.veiculoInteresse}` : ""] }), _jsxs("span", { className: "dashboard__lista-acoes-detalhe", children: ["Respons\u00E1vel: ", nomesUsuarios.get(respAcaoId) ?? "\u2014"] })] })] }, o.id));
                             }) })), itens.length > LIMITE_INICIAL_AGENDA && !agendaMostrarTodos[g.chave] && (_jsx("button", { type: "button", className: "agenda__ver-mais", onClick: () => setAgendaMostrarTodos((prev) => ({ ...prev, [g.chave]: true })), children: `Ver mais (${itens.length - LIMITE_INICIAL_AGENDA})` }))] }, g.chave));
-            })] }), _jsxs("div", { className: "dashboard__grade-indicadores", children: [_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por etapa" }), _jsx(ListaContagem, { linhas: porEtapa, maior: maiorPorEtapa, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por respons\u00E1vel" }), _jsx(ListaContagem, { linhas: porResponsavel, maior: maiorPorResponsavel, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Negocia\u00E7\u00F5es por origem" }), _jsx(ListaContagem, { linhas: porOrigem, maior: maiorPorOrigem, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Motivos de perda" }), _jsx(ListaContagem, { linhas: motivosDePerda, maior: maiorMotivo, vazio: "Sem perdas no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Perdas por etapa" }), _jsx(ListaContagem, { linhas: perdasPorEtapa, maior: maiorPerdaEtapa, vazio: "Sem perdas no recorte atual." })] })] }), _jsx("button", { className: "dashboard__cta", onClick: onIrPipeline, children: "Ver Pipeline completo \u2192" })] }));
+            })] }), _jsxs("div", { className: "dashboard__grade-indicadores", children: [_jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Situa\u00E7\u00E3o dos leads recebidos no per\u00EDodo" }), _jsx(ListaContagem, { linhas: porEtapa, maior: maiorPorEtapa, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Leads recebidos por respons\u00E1vel atual" }), _jsx(ListaContagem, { linhas: porResponsavel, maior: maiorPorResponsavel, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Leads recebidos por origem" }), _jsx(ListaContagem, { linhas: porOrigem, maior: maiorPorOrigem, vazio: "Sem negocia\u00E7\u00F5es no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Motivos de perda (perdas no per\u00EDodo)" }), _jsx(ListaContagem, { linhas: motivosDePerda, maior: maiorMotivo, vazio: "Sem perdas no recorte atual." })] }), _jsxs("section", { className: "dashboard__secao", children: [_jsx("h2", { className: "dashboard__secao-titulo", children: "Perdas por etapa (perdas no per\u00EDodo)" }), _jsx(ListaContagem, { linhas: perdasPorEtapa, maior: maiorPerdaEtapa, vazio: "Sem perdas no recorte atual." })] })] }), _jsx("button", { className: "dashboard__cta", onClick: onIrPipeline, children: "Ver Pipeline completo \u2192" })] }));
 }
 // Lista "rótulo — barra proporcional — quantidade", reaproveitada pelos
 // cinco indicadores de distribuição. Mantém a interface deliberadamente
