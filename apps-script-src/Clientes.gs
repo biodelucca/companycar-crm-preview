@@ -144,3 +144,119 @@ function criarCliente_(dados) {
   adicionarLinhaPorCabecalho_(aba, linha);
   return linha;
 }
+
+// ---------------------------------------------------------------------------
+// Melhoria 4 "Alerta de oportunidade duplicada" (2026-10-07) -- DETECÇÃO e
+// ALERTA apenas: nada aqui cria, altera, junta ou exclui cliente/oportunidade.
+// Chamada só pelo handler "criarOportunidade" (Roteador.gs) quando a tela
+// Nova Negociação envia verificarDuplicidade:true; WhatsApp/Mobiauto chamam
+// criarOportunidade_ direto e continuam exatamente como antes.
+// ---------------------------------------------------------------------------
+
+// Chave de COMPARAÇÃO de telefone, só para detectar duplicidade (a gravação e o
+// reaproveitamento de cliente em criarOportunidade_ continuam usando só
+// normalizarTelefone_, intocada). Parte da mesma normalização (só dígitos) e
+// acrescenta o que a base real mostrou ser necessário: o WhatsApp/Mobiauto
+// gravam com DDI "55" e, às vezes, sem o 9º dígito; a digitação manual vem sem
+// DDI. Resultado: DDD + 8 últimos dígitos, tanto para "(48) 99699-9307" quanto
+// para "+55 48 99699-9307" ou "554896999307". Qualquer formato fora de
+// 10/11 dígitos (após tirar o DDI) só casa por igualdade exata.
+function chaveComparacaoTelefone_(telefone) {
+  var d = normalizarTelefone_(telefone);
+  if (!d) return '';
+  if (d.length >= 12 && d.indexOf('55') === 0) d = d.substring(2);
+  if (d.length === 10) return d;
+  if (d.length === 11 && d.charAt(2) === '9') return d.substring(0, 2) + d.substring(3);
+  return 'x' + d;
+}
+
+function valorIsoDup_(v) {
+  if (!v) return '';
+  if (v instanceof Date) return v.toISOString();
+  return String(v);
+}
+
+function tempoDup_(v) {
+  var t = Date.parse(valorIsoDup_(v));
+  return isNaN(t) ? 0 : t;
+}
+
+// Devolve { encontrada:false } ou { encontrada:true, nivel:'ativa'|'historico', ... }.
+// Regras: oportunidade excluída (excluido_em) é ignorada; prioridade = ativa mais
+// recentemente atualizada > encerrada mais recente. Permissão: o que o usuário
+// pode VER segue exatamente listOportunidades_ (mesma função, mesma regra).
+// Para negociação fora da visibilidade do usuário, devolve só o mínimo para
+// evitar duplicidade (nível + nome do responsável da ativa) -- sem cliente,
+// veículo, etapa, datas ou id.
+function verificarDuplicidadeNegociacao_(telefone, usuarioAutenticado) {
+  if (!usuarioAutenticado) {
+    throw new Error('verificarDuplicidadeNegociacao_ requer usuarioAutenticado (contexto de sessao) por seguranca.');
+  }
+  var chave = chaveComparacaoTelefone_(telefone);
+  if (!chave) return { encontrada: false };
+
+  var clientesPorId = {};
+  lerAbaComoObjetos_(ABAS.CLIENTES).forEach(function (c) {
+    if (chaveComparacaoTelefone_(c.telefone) === chave) clientesPorId[String(c.id)] = c;
+  });
+  if (!Object.keys(clientesPorId).length) return { encontrada: false };
+
+  var etapaPorId = {};
+  listEtapas_().forEach(function (e) { etapaPorId[String(e.id)] = e; });
+  var usuarioPorId = {};
+  listUsuarios_().forEach(function (u) { usuarioPorId[String(u.id)] = u; });
+
+  var visiveis = {};
+  listOportunidades_(usuarioAutenticado).forEach(function (o) { visiveis[String(o.id)] = true; });
+
+  var ativas = [];
+  var encerradas = [];
+  lerAbaComoObjetos_(ABAS.OPORTUNIDADES).forEach(function (o) {
+    if (o.excluido_em || !clientesPorId[String(o.cliente_id)]) return;
+    var etapa = etapaPorId[String(o.etapa_id)] || null;
+    var tipo = etapa ? etapa.tipo : 'ativa';
+    var item = { o: o, etapa: etapa, tipo: tipo };
+    if (tipo === 'ganho' || tipo === 'perdido') {
+      item.ref = tempoDup_(tipo === 'ganho' ? (o.vendido_em || o.atualizado_em) : (o.perdido_em || o.atualizado_em));
+      encerradas.push(item);
+    } else {
+      item.ref = tempoDup_(o.atualizado_em || o.criado_em);
+      ativas.push(item);
+    }
+  });
+  if (!ativas.length && !encerradas.length) return { encontrada: false };
+
+  ativas.sort(function (a, b) { return b.ref - a.ref; });
+  encerradas.sort(function (a, b) { return b.ref - a.ref; });
+  var principal = ativas.length ? ativas[0] : encerradas[0];
+  var ehAtiva = ativas.length > 0;
+  var nomeResp = function (o) {
+    var u = usuarioPorId[String(o.responsavel_id)];
+    return u ? u.nome : '';
+  };
+
+  var resposta = { encontrada: true, nivel: ehAtiva ? 'ativa' : 'historico' };
+  if (!visiveis[String(principal.o.id)]) {
+    // Fora da carteira do usuário: nada de dados da negociação.
+    if (ehAtiva) resposta.responsavelNome = nomeResp(principal.o);
+    return resposta;
+  }
+
+  var o = principal.o;
+  var cliente = clientesPorId[String(o.cliente_id)];
+  var veiculo = o.veiculo_interesse ||
+    [o.veiculo_estoque_marca, o.veiculo_estoque_modelo_versao, o.veiculo_estoque_ano].filter(Boolean).join(' ');
+  var totalVisiveis = 0;
+  ativas.concat(encerradas).forEach(function (x) { if (visiveis[String(x.o.id)]) totalVisiveis++; });
+  resposta.totalNegociacoes = totalVisiveis;
+  resposta.principal = {
+    oportunidadeId: String(o.id),
+    clienteNome: cliente ? cliente.nome : '',
+    veiculo: veiculo || '',
+    etapaNome: principal.etapa ? principal.etapa.nome : '',
+    resultado: principal.tipo === 'perdido' ? 'Perdido' : (principal.tipo === 'ganho' ? 'Venda realizada' : ''),
+    responsavelNome: nomeResp(o),
+    dataReferencia: principal.ref ? new Date(principal.ref).toISOString() : ''
+  };
+  return resposta;
+}

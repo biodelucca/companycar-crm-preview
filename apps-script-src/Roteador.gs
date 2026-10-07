@@ -117,7 +117,19 @@ var ACOES_POST = {
   associarVeiculoEstoque: function (dados) {
     return associarVeiculoEstoque_(dados.oportunidadeId, dados.veiculoEstoqueId, dados.usuarioId);
   },
-  criarOportunidade: function (dados) {
+  criarOportunidade: function (dados, e, usuarioAutenticado) {
+    // Melhoria 4 "Alerta de oportunidade duplicada" (2026-10-07): checagem opt-in,
+    // só quando a tela Nova Negociação pede (verificarDuplicidade:true). Se já
+    // existir negociação para o mesmo telefone e o usuário ainda não confirmou
+    // (confirmarDuplicidade), NADA é criado e devolve { duplicidade }.
+    // WhatsApp/Mobiauto não passam por este handler (chamam criarOportunidade_
+    // direto) e clientes antigos do frontend, sem as flags, seguem como antes.
+    if (dados && dados.verificarDuplicidade === true && dados.confirmarDuplicidade !== true) {
+      var duplicidade = verificarDuplicidadeNegociacao_(dados.telefone, usuarioAutenticado);
+      if (duplicidade.encontrada) {
+        return { duplicidade: duplicidade };
+      }
+    }
     return criarOportunidade_(dados);
   },
   // Sprint 6 "Operação do dia a dia" (2026-08-07) -- ver Oportunidades.gs/
