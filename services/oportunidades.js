@@ -310,9 +310,21 @@ export async function criarOportunidade(dados, idToken) {
             proximaAcao: dados.proximaAcao,
             proximaAcaoData: dados.proximaAcaoData,
             usuarioId: dados.usuarioId,
+            // Melhoria 4 "Alerta de oportunidade duplicada" (2026-10-07) — opt-in:
+            // só a tela Nova Negociação envia estes flags. Sem eles o backend
+            // se comporta exatamente como antes (WhatsApp/Mobiauto nem passam
+            // por aqui; chamam criarOportunidade_ direto).
+            verificarDuplicidade: dados.verificarDuplicidade,
+            confirmarDuplicidade: dados.confirmarDuplicidade,
         },
         idToken: idToken ?? undefined,
     });
+    // O backend devolve { duplicidade } (sem criar nada) quando encontra
+    // negociação existente para o mesmo telefone e a criação ainda não foi
+    // confirmada pelo usuário.
+    if (raw && raw.duplicidade) {
+        return { duplicidade: raw.duplicidade };
+    }
     return {
         oportunidade: mapOportunidade(raw.oportunidade),
         cliente: mapCliente(raw.cliente),
