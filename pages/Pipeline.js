@@ -81,7 +81,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     const [ordemData, setOrdemData] = useState("recentes");
     const [atualizando, setAtualizando] = useState(false);
     const [ultimaAtualizacao, setUltimaAtualizacao] = useState(null);
-    const podeFiltrarPorResponsavel = !!(usuario && PAPEIS_VISAO_COMPLETA_PIPELINE[usuario.papel]);
+    const podeFiltrarPorResponsavel = !!(usuario && PAPEIS_VISAO_COMPLETA_PIPELINE[usuario.papel] || usuario?.visualizaTodasOportunidades);
     const [etapas, setEtapas] = useState([]);
     const [oportunidades, setOportunidades] = useState([]);
     const [clientes, setClientes] = useState([]);
