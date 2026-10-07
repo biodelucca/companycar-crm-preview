@@ -209,6 +209,53 @@ button {
   font-weight: 700;
 }
 
+.dashboard__card-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__cards--analiticos {
+  margin-bottom: 16px;
+}
+
+/* Melhoria 6 "Filtro de período no Dashboard" (2026-10-07) — linha discreta
+   com o período analisado, o erro do período personalizado e o aviso de
+   histórico de vendas. */
+.dashboard__periodo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: -12px 0 16px;
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__aviso {
+  font-size: 12px;
+  color: var(--cor-texto-suave);
+}
+
+.dashboard__aviso--erro {
+  color: var(--cor-primaria-escura);
+  font-weight: 600;
+}
+
+.dashboard__filtros input[type="date"] {
+  padding: 7px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  background: #fff;
+  color: var(--cor-texto);
+}
+
+.dashboard__filtros input[aria-invalid="true"] {
+  border-color: var(--cor-primaria);
+}
+
 .dashboard__card-valor small {
   font-size: 14px;
   font-weight: 500;
