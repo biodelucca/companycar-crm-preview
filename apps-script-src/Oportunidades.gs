@@ -30,6 +30,20 @@ function listOportunidades_(usuarioAutenticado) {
     throw new Error('listOportunidades_ requer usuarioAutenticado (contexto de sessao) por seguranca.');
   }
   var linhas = lerAbaComoObjetos_(ABAS.OPORTUNIDADES).filter(function (o) { return !o.excluido_em; });
+  // Hotfix "Horario da Proxima Acao" (2026-08-17): Sheets converte proxima_acao_data
+  // para Date nativo (fuso da propria planilha), e JSON.stringify (respostaOk_) sempre
+  // serializa Date em UTC, descartando o fuso -- por isso a mesma normalizacao vale
+  // tanto para a oportunidade dentro do SidePanel quanto para as listas do Dashboard,
+  // que leem os dois dessa mesma linhas aqui. Ver normalizarProximaAcaoData_ (Utils.gs).
+  linhas.forEach(function (o) {
+    o.proxima_acao_data = normalizarProximaAcaoData_(o.proxima_acao_data);
+    // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+    // mesmo tratamento acima, reaproveitando normalizarProximaAcaoData_
+    // (função genérica, não amarrada a próxima ação -- só normaliza
+    // qualquer valor "YYYY-MM-DDTHH:mm" que o Sheets tenha convertido
+    // silenciosamente em Date).
+    o.visita_agendada_em = normalizarProximaAcaoData_(o.visita_agendada_em);
+  });
   if (usuarioTemVisaoCompleta_(usuarioAutenticado)) {
     return linhas;
   }
@@ -122,6 +136,37 @@ function configurarColunaResponsavelPerda_() {
   }
   return { acao: 'nenhuma', motivo: nomeColuna + ' ja existe no cabecalho -- nada a fazer.', cabecalho: cabecalho };
 }
+// Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) -- migracao
+// de schema: adiciona as colunas de snapshot da REABERTURA mais recente
+// (ver reabrirOportunidade_ abaixo). Mesmo padrao idempotente de
+// configurarColunaResponsavelPerda_ acima -- so adiciona a coluna que
+// ainda nao existir no cabecalho, entao chamar de novo nao duplica nada
+// e nenhuma linha de dado e lida ou alterada. Nao e chamada por nenhuma
+// action do Roteador -- e chamada internamente pela propria
+// reabrirOportunidade_ (autocontida, dentro do mesmo lock) no inicio de
+// cada reabertura, entao a migracao acontece sozinha, de forma lazy e
+// idempotente, na primeira vez que a funcionalidade for usada em
+// producao -- sem precisar de execucao manual avulsa nem de expor
+// nenhuma action sem sessao.
+function configurarColunasReabertura_() {
+  var aba = getAba_(ABAS.OPORTUNIDADES);
+  var cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+  var nomesColunas = ['reaberto_em', 'reaberto_por'];
+  var adicionadas = [];
+  nomesColunas.forEach(function (nomeColuna) {
+    if (cabecalho.indexOf(nomeColuna) === -1) {
+      var novaCol = aba.getLastColumn() + 1;
+      aba.getRange(1, novaCol).setValue(nomeColuna);
+      cabecalho.push(nomeColuna);
+      adicionadas.push({ coluna: nomeColuna, coluna1based: novaCol });
+    }
+  });
+  if (adicionadas.length === 0) {
+    return { acao: 'nenhuma', motivo: 'reaberto_em e reaberto_por ja existem no cabecalho -- nada a fazer.', cabecalho: cabecalho };
+  }
+  return { acao: 'adicionada', adicionadas: adicionadas, cabecalho: cabecalho };
+}
+
 
 // Sprint 8 "Performance e Estabilidade" (2026-08-10): cacheada (5min, ver
 // lerAbaComoObjetosCacheada_ em Utils.gs) -- as 8 etapas do pipeline nunca
@@ -281,7 +326,7 @@ function obterEtapaPorId_(etapaId) {
 // Duas camadas de validação de etapa final, mesma filosofia já usada no
 // frontend desde o Ciclo 4: aqui é a camada de verdade (o frontend também
 // valida antes de chamar, mas quem manda é o backend).
-function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, usuarioId) {
+function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, usuarioId, visitaAgendadaEm) {
   if (!oportunidadeId || !novaEtapaId) {
     throw new Error('oportunidadeId e novaEtapaId sao obrigatorios.');
   }
@@ -320,6 +365,16 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       }
     }
 
+    // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+    // segunda camada de validação (a primeira é o frontend, ver
+    // moverEtapa em Pipeline.tsx/confirmarMovimento em SidePanel.tsx):
+    // data/hora só são exigidas quando o DESTINO é Visita Agendada, nunca
+    // em nenhuma outra etapa -- mesma filosofia da validação de motivo de
+    // perda acima.
+    if (etapaNova.nome === 'Visita Agendada' && !visitaAgendadaEm) {
+      throw new Error('Data e horario da visita sao obrigatorios ao mover para Visita Agendada.');
+    }
+
     var agora = new Date().toISOString();
     // Sprint 8 "Performance e Estabilidade" (2026-08-10): campos
     // acumulados num objeto e gravados numa única chamada setValues (ver
@@ -348,12 +403,52 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       var colResponsavelAtual = cabecalho.indexOf('responsavel_id');
       campos.responsavel_no_momento_perda_id = colResponsavelAtual !== -1 ? encontrada.linhaValores[colResponsavelAtual] : '';
     }
+
+    // Melhoria isolada "Data da venda" (2026-08-24) -- grava vendido_em/
+    // vendido_por na PRIMEIRA entrada em qualquer etapa tipo 'ganho' (hoje so
+    // existe uma: Venda/Documentacao). Defensivo: nunca sobrescreve um
+    // vendido_em ja gravado -- hoje isso e estruturalmente impossivel de
+    // acontecer por este caminho (o guard de "etapa final" no topo desta
+    // funcao ja bloqueia sair de uma etapa tipo 'ganho'/'perdido', entao nao
+    // ha como "voltar" e re-entrar em Venda/Documentacao por aqui), mas o
+    // check deixa o codigo seguro mesmo se essa regra mudar no futuro. Nao
+    // depende de atualizado_em nem de nenhuma outra edicao -- so este bloco
+    // escreve o campo, e so uma vez.
+    if (etapaNova.tipo === 'ganho') {
+      var colVendidoEmAtual = cabecalho.indexOf('vendido_em');
+        var vendidoEmAtual = colVendidoEmAtual !== -1 ? encontrada.linhaValores[colVendidoEmAtual] : '';
+          if (!vendidoEmAtual) {
+              campos.vendido_em = agora;
+                  campos.vendido_por = usuarioId || '';
+                    }
+                    }
+
+    // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+    // grava a data/hora estruturada só ao ENTRAR na etapa (mesmo lock desta
+    // função). Reagendamentos posteriores, com a oportunidade já em Visita
+    // Agendada, usam reagendarVisita_ abaixo -- função separada, com seu
+    // próprio evento de Timeline, para não sobrecarregar o evento
+    // 'mudanca_etapa' com múltiplos reagendamentos.
+    if (etapaNova.nome === 'Visita Agendada') {
+      campos.visita_agendada_em = visitaAgendadaEm;
+      campos.visita_agendada_por = usuarioId || '';
+    }
     gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, campos);
 
     var descricaoEvento = 'Movida de "' + (etapaAtual ? etapaAtual.nome : '?') + '" para "' + etapaNova.nome + '"';
     if (motivo) {
       descricaoEvento += ' -- motivo: ' + motivo.nome + (motivo.nome === 'Outro' ? (' (' + motivoPerdaOutroTexto + ')') : '');
     }
+    if (etapaNova.nome === 'Visita Agendada') {
+      // Ata a informação da visita ao MESMO evento de mudança de etapa, em
+      // vez de criar um segundo evento -- pedido explícito: não simular uma
+      // movimentação extra (mesma decisão já tomada na melhoria "Etapa
+      // inicial na Nova Negociação", 2026-08-22, para o caso de criação).
+      descricaoEvento += ' -- visita agendada para ' + formatarDataHoraVisita_(visitaAgendadaEm);
+    }
+    if (etapaNova.tipo === 'ganho' && campos.vendido_em) {
+      descricaoEvento += ' -- venda registrada em ' + formatarDataHoraVenda_(campos.vendido_em);
+      }
     registrarEventoTimeline_(oportunidadeId, 'mudanca_etapa', descricaoEvento, usuarioId);
 
     return { oportunidadeId: oportunidadeId, etapaId: novaEtapaId };
@@ -361,6 +456,148 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
     lock.releaseLock();
   }
 }
+
+// Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+// reagendamento: só é permitido enquanto a oportunidade ESTÁ em Visita
+// Agendada (a entrada inicial na etapa é coberta por
+// moverEtapaOportunidade_ acima, que já exige data/hora ao entrar). Sem
+// tabela paralela de histórico -- o valor atual fica só em
+// visita_agendada_em/visita_agendada_por (sempre sobrescritos a cada
+// reagendamento) e cada reagendamento vira um evento PRÓPRIO na Timeline
+// (tipo 'visita_reagendada', distinto de 'mudanca_etapa'), preservando o
+// rastro completo sem duplicar estrutura de dados -- mesma filosofia de
+// registrarEventoTimeline_ usada em toda a base.
+function reagendarVisita_(oportunidadeId, visitaAgendadaEm, usuarioId) {
+  if (!oportunidadeId || !visitaAgendadaEm) {
+    throw new Error('oportunidadeId e visitaAgendadaEm sao obrigatorios.');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
+    if (!encontrada) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
+    var cabecalho = encontrada.cabecalho;
+    var colEtapa = cabecalho.indexOf('etapa_id');
+    var etapaAtual = obterEtapaPorId_(encontrada.linhaValores[colEtapa]);
+    if (!etapaAtual || etapaAtual.nome !== 'Visita Agendada') {
+      throw new Error('So e possivel reagendar a visita enquanto a oportunidade esta em Visita Agendada.');
+    }
+
+    var colVisitaEm = cabecalho.indexOf('visita_agendada_em');
+    var valorAntigo = colVisitaEm !== -1 ? encontrada.linhaValores[colVisitaEm] : '';
+    var agora = new Date().toISOString();
+
+    var oportunidadeFinal = gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
+      visita_agendada_em: visitaAgendadaEm,
+      visita_agendada_por: usuarioId || '',
+      atualizado_em: agora
+    });
+
+    var usuarios = listUsuarios_();
+    var atorNome = nomeUsuarioPorId_(usuarios, usuarioId);
+    var descricaoEvento = valorAntigo
+      ? '"' + atorNome + '" reagendou a visita de ' + formatarDataHoraVisita_(valorAntigo) + ' para ' + formatarDataHoraVisita_(visitaAgendadaEm) + '.'
+      : '"' + atorNome + '" definiu a visita para ' + formatarDataHoraVisita_(visitaAgendadaEm) + '.';
+    registrarEventoTimeline_(oportunidadeId, 'visita_reagendada', descricaoEvento, usuarioId);
+
+    return { oportunidade: oportunidadeFinal };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+// migração de schema: adiciona as duas colunas novas exigidas pela data/
+// hora estruturada da visita (ver moverEtapaOportunidade_ e
+// reagendarVisita_ acima). Idempotente -- mesmo padrão de
+// configurarColunaResponsavelPerda_ acima: só adiciona cada coluna se ela
+// ainda não existir no cabeçalho, então rodar de novo por engano não
+// duplica nada. Não é chamada por nenhuma action do Roteador -- executada
+// uma única vez via URL de teste do Apps Script antes da publicação,
+// mantida no código depois por documentação/idempotência (mesma
+// convenção dos Ciclos 19 e 22).
+function configurarColunasVisitaAgendada_() {
+  var aba = getAba_(ABAS.OPORTUNIDADES);
+  var colunas = ['visita_agendada_em', 'visita_agendada_por'];
+  var adicionadas = [];
+  colunas.forEach(function (nomeColuna) {
+    var cabecalho = aba.getRange(1, 1, 1, aba.getLastColumn()).getValues()[0];
+    if (cabecalho.indexOf(nomeColuna) === -1) {
+      var novaCol = aba.getLastColumn() + 1;
+      aba.getRange(1, novaCol).setValue(nomeColuna);
+      adicionadas.push(nomeColuna);
+    }
+  });
+  return { acao: adicionadas.length ? 'adicionada' : 'nenhuma', colunas: adicionadas };
+}
+
+
+// Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) -- permite
+// devolver ao Pipeline ativo uma oportunidade que esta em Perdido, sem
+// apagar nem sobrescrever o historico da perda. Acao deliberada e
+// SEPARADA de moverEtapaOportunidade_ (que continua recusando qualquer
+// movimentacao para fora de ganho/perdido nas duas camadas de sempre --
+// frontend e aqui) -- so e possivel reabrir por esta funcao. Grava
+// apenas etapa_id/atualizado_em/reaberto_em/reaberto_por; NUNCA toca em
+// perdido_em/perdido_por/motivo_perda_id/motivo_perda_descricao_outro/
+// etapa_origem_perda_id/responsavel_no_momento_perda_id -- esses campos
+// continuam representando a perda mais recente (historico completo de
+// TODOS os ciclos perda/reabertura vive na Timeline via
+// registrarEventoTimeline_, nunca sobrescrita). reaberto_em/reaberto_por
+// tambem sao so um snapshot da reabertura mais recente, pelo mesmo
+// motivo -- consulte a Timeline (tipoEvento 'reabertura') para o
+// historico completo de reaberturas.
+function reabrirOportunidade_(oportunidadeId, novaEtapaId, usuarioId) {
+  if (!oportunidadeId || !novaEtapaId) {
+    throw new Error('oportunidadeId e novaEtapaId sao obrigatorios.');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    // Garante que as colunas reaberto_em/reaberto_por existam antes da
+    // primeira gravacao -- idempotente (configurarColunasReabertura_ so
+    // adiciona o que ainda nao existir), autocontido, e dentro do mesmo
+    // lock desta funcao, entao nao ha corrida com outra chamada
+    // concorrente. Evita depender de uma execucao manual avulsa da
+    // migracao antes do primeiro uso em producao.
+    configurarColunasReabertura_();
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
+    if (!encontrada) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
+    var cabecalho = encontrada.cabecalho;
+    var colEtapa = cabecalho.indexOf('etapa_id');
+    var etapaAtualId = encontrada.linhaValores[colEtapa];
+    var etapaAtual = obterEtapaPorId_(etapaAtualId);
+    var etapaNova = obterEtapaPorId_(novaEtapaId);
+
+    if (!etapaAtual || etapaAtual.tipo !== 'perdido') {
+      throw new Error('So e possivel reabrir oportunidades que estao em Perdido.');
+    }
+    if (!etapaNova) {
+      throw new Error('Etapa de destino invalida: ' + novaEtapaId);
+    }
+    if (etapaNova.tipo === 'ganho' || etapaNova.tipo === 'perdido') {
+      throw new Error('Etapa de destino da reabertura precisa ser uma etapa ativa do funil.');
+    }
+
+    var agora = new Date().toISOString();
+    var campos = { etapa_id: novaEtapaId, atualizado_em: agora, reaberto_em: agora, reaberto_por: usuarioId || '' };
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, campos);
+
+    var descricaoEvento = 'Reaberta de "' + etapaAtual.nome + '" para "' + etapaNova.nome + '"';
+    registrarEventoTimeline_(oportunidadeId, 'reabertura', descricaoEvento, usuarioId);
+
+    return { oportunidadeId: oportunidadeId, etapaId: novaEtapaId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 
 // Transferência de responsável. "quem realizou a transferência" é sempre
 // o usuarioId recebido (ator logado no frontend no momento da ação) --
@@ -399,6 +636,8 @@ function transferirOportunidade_(oportunidadeId, novoResponsavelId, usuarioId) {
     if (!novoValido) {
       throw new Error('Usuario de destino invalido: ' + novoResponsavelId);
     }
+    // Melhoria 2 (2026-10-07): usuario inativo nao recebe oportunidade transferida.
+    exigirUsuarioAtivoParaAtribuicao_(usuarios, novoResponsavelId);
 
     var agora = new Date().toISOString();
     gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
@@ -410,6 +649,186 @@ function transferirOportunidade_(oportunidadeId, novoResponsavelId, usuarioId) {
     registrarEventoTimeline_(oportunidadeId, 'transferencia', descricaoEvento, usuarioId);
 
     return { oportunidadeId: oportunidadeId, responsavelId: novoResponsavelId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Melhoria 8 (2026-10-07) -- estrutura do snapshot do veiculo do estoque na
+ * oportunidade. Contexto: o cabecalho das 8 colunas veiculo_estoque_* da
+ * aba Oportunidades estava colado em UMA unica celula (nomes separados por
+ * TAB) e as colunas seguintes sem titulo; como gravarCamposLinha_ e
+ * adicionarLinhaPorCabecalho_ ignoram em silencio nomes que nao existem no
+ * cabecalho, o snapshot nunca foi gravado. A partir daqui, associar veiculo
+ * (e criar oportunidade ja com veiculo) EXIGE a estrutura correta: se algum
+ * cabecalho obrigatorio faltar (ou o formato texto de id/ano/associado_em
+ * nao estiver aplicado) a operacao falha com erro explicito, sem gravar
+ * nada, e o erro tambem vai para o log de execucoes (console.error).
+ * O snapshot e o registro comercial do que o cliente quis naquele momento;
+ * o frontend continua mostrando o dado ao vivo do feed por cima, quando o
+ * id ainda esta no estoque. Nao ha preenchimento retroativo do historico.
+ */
+var CAMPOS_SNAPSHOT_VEICULO_ESTOQUE = [
+  'veiculo_estoque_id',
+  'veiculo_estoque_marca',
+  'veiculo_estoque_modelo_versao',
+  'veiculo_estoque_ano',
+  'veiculo_estoque_km',
+  'veiculo_estoque_preco',
+  'veiculo_estoque_imagem',
+  'veiculo_estoque_associado_em'
+];
+
+// Campos que precisam ficar como TEXTO na planilha (a coluna e formatada
+// como "texto simples"): id (nao pode perder zeros nem virar numero), ano
+// no formato "AAAA/AAAA" (nao pode virar data/numero) e o timestamp ISO.
+var CAMPOS_SNAPSHOT_VEICULO_TEXTO = [
+  'veiculo_estoque_id',
+  'veiculo_estoque_ano',
+  'veiculo_estoque_associado_em'
+];
+
+function falharSnapshotVeiculo_(codigo, detalhe) {
+  var mensagem = codigo + ': ' + detalhe;
+  console.error(mensagem);
+  throw new Error(mensagem);
+}
+
+// Valida a estrutura da aba Oportunidades para gravar o snapshot. Nao grava
+// nada. 'cabecalho' e a primeira linha ja lida pelo chamador.
+function exigirEstruturaSnapshotVeiculoEstoque_(aba, cabecalho) {
+  var ausentes = CAMPOS_SNAPSHOT_VEICULO_ESTOQUE.filter(function (nome) {
+    return cabecalho.indexOf(nome) === -1;
+  });
+  if (ausentes.length > 0) {
+    falharSnapshotVeiculo_(
+      'SNAPSHOT_VEICULO_CABECALHO_AUSENTE',
+      'a aba Oportunidades nao tem o(s) cabecalho(s) obrigatorio(s) [' + ausentes.join(', ') + ']. ' +
+      'Nada foi gravado. Corrija a estrutura da planilha (migrarVeiculoEstoqueCabecalhos_) antes de associar veiculos.'
+    );
+  }
+  var duplicados = CAMPOS_SNAPSHOT_VEICULO_ESTOQUE.filter(function (nome) {
+    return cabecalho.indexOf(nome) !== cabecalho.lastIndexOf(nome);
+  });
+  if (duplicados.length > 0) {
+    falharSnapshotVeiculo_(
+      'SNAPSHOT_VEICULO_CABECALHO_DUPLICADO',
+      'cabecalho(s) repetido(s) na aba Oportunidades: [' + duplicados.join(', ') + ']. Nada foi gravado.'
+    );
+  }
+  if (aba.getLastRow() >= 2) {
+    var semFormatoTexto = CAMPOS_SNAPSHOT_VEICULO_TEXTO.filter(function (nome) {
+      return aba.getRange(2, cabecalho.indexOf(nome) + 1).getNumberFormat() !== '@';
+    });
+    if (semFormatoTexto.length > 0) {
+      falharSnapshotVeiculo_(
+        'SNAPSHOT_VEICULO_FORMATO_INVALIDO',
+        'a(s) coluna(s) [' + semFormatoTexto.join(', ') + '] da aba Oportunidades nao esta(o) formatada(s) como texto simples ' +
+        '(o id/ano poderiam ser convertidos em numero ou data). Nada foi gravado.'
+      );
+    }
+  }
+}
+
+// Snapshot do veiculo NO MOMENTO da associacao (mesmos nomes/valores que o
+// desenho original da Sprint 3 ja previa; id e ano sempre como texto).
+function montarSnapshotVeiculoEstoque_(veiculo, agoraIso) {
+  return {
+    veiculo_estoque_id: String(veiculo.id),
+    veiculo_estoque_marca: veiculo.marca || '',
+    veiculo_estoque_modelo_versao: veiculo.modeloVersao || '',
+    veiculo_estoque_ano: veiculo.ano ? String(veiculo.ano) : '',
+    veiculo_estoque_km: (veiculo.km !== null && veiculo.km !== undefined) ? veiculo.km : '',
+    veiculo_estoque_preco: (veiculo.preco !== null && veiculo.preco !== undefined) ? veiculo.preco : '',
+    veiculo_estoque_imagem: veiculo.imagemPrincipal || '',
+    veiculo_estoque_associado_em: agoraIso
+  };
+}
+
+// Releitura da linha logo apos gravar: devolve a lista de campos do
+// snapshot cujo valor gravado difere do esperado ([] = tudo certo).
+function conferirSnapshotGravado_(aba, linha, cabecalho, snapshot) {
+  var gravado = aba.getRange(linha, 1, 1, cabecalho.length).getValues()[0];
+  return CAMPOS_SNAPSHOT_VEICULO_ESTOQUE.filter(function (nome) {
+    var esperado = snapshot[nome];
+    var lido = gravado[cabecalho.indexOf(nome)];
+    if (nome === 'veiculo_estoque_associado_em') {
+      return lido === '' || lido === null || lido === undefined;
+    }
+    if (typeof esperado === 'number') {
+      return lido === '' || Number(lido) !== esperado;
+    }
+    return String(lido) !== String(esperado);
+  });
+}
+
+function textoEventoAssociacaoVeiculo_(nomeUsuario, descricaoVeiculo, veiculoId) {
+  return '"' + nomeUsuario + '" associou o veiculo "' + descricaoVeiculo + '" (Simples #' + veiculoId + ') a oportunidade.';
+}
+
+// Migracao (rodar UMA vez, manualmente, depois de backup): conserta os
+// cabecalhos SEM mover nenhuma coluna existente. Renomeia no lugar as
+// colunas 20-26 (T-Z) e acrescenta veiculo_estoque_associado_em como NOVA
+// ULTIMA coluna (excluido_em e todas as colunas seguintes ficam onde estao).
+// Idempotente e conservadora: so age se a estrutura for exatamente a
+// encontrada no diagnostico (celula 20 com os 8 nomes colados por TAB,
+// 21-26 sem titulo, 27 = excluido_em, colunas 20-26 sem nenhum dado);
+// qualquer coisa diferente aborta sem alterar nada. Nao toca em nenhuma
+// linha de dados. simular=true so devolve o plano.
+function migrarVeiculoEstoqueCabecalhos_(simular) {
+  var NOMES = CAMPOS_SNAPSHOT_VEICULO_ESTOQUE;
+  var COL_INICIAL = 20;
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var ultimaCol = aba.getLastColumn();
+    var cab = aba.getRange(1, 1, 1, ultimaCol).getValues()[0];
+    var presentes = NOMES.filter(function (n) { return cab.indexOf(n) !== -1; });
+
+    if (presentes.length === NOMES.length) {
+      return { status: 'ja_migrado', cabecalho: cab };
+    }
+
+    var problemas = [];
+    if (cab[COL_INICIAL - 1] !== NOMES.join('\t')) problemas.push('coluna 20 nao contem os 8 nomes colados por TAB');
+    for (var c = COL_INICIAL; c < COL_INICIAL + 6; c++) {
+      if (cab[c] !== '') problemas.push('coluna ' + (c + 1) + ' ja tem cabecalho');
+    }
+    if (cab[COL_INICIAL + 6] !== 'excluido_em') problemas.push('coluna 27 nao e excluido_em');
+    if (cab[ultimaCol - 1] === '') problemas.push('ultima coluna sem cabecalho');
+    if (presentes.length > 0) problemas.push('ja existem cabecalhos veiculo_estoque_* soltos: ' + presentes.join(','));
+    var ultimaLinha = aba.getLastRow();
+    if (ultimaLinha >= 2) {
+      var dadosNasColunas = aba.getRange(2, COL_INICIAL, ultimaLinha - 1, 7).getValues();
+      var temDado = dadosNasColunas.some(function (linha) {
+        return linha.some(function (v) { return v !== '' && v !== null; });
+      });
+      if (temDado) problemas.push('ha dados nas colunas 20-26');
+    }
+    if (problemas.length > 0) {
+      throw new Error('MIGRACAO_VEICULO_ESTOQUE_ESTRUTURA_INESPERADA: ' + problemas.join('; ') + ' -- nada foi alterado.');
+    }
+
+    var novaCol = ultimaCol + 1;
+    if (simular) {
+      return { status: 'simulacao_ok', renomear_colunas_20_a_26: NOMES.slice(0, 7), nova_coluna: novaCol, nome_nova_coluna: NOMES[7] };
+    }
+
+    aba.getRange(1, COL_INICIAL, 1, 7).setValues([NOMES.slice(0, 7)]);
+    if (aba.getMaxColumns() < novaCol) {
+      aba.insertColumnsAfter(aba.getMaxColumns(), novaCol - aba.getMaxColumns());
+    }
+    aba.getRange(1, novaCol).setValue(NOMES[7]);
+    aba.getRange(1, COL_INICIAL - 1).copyTo(aba.getRange(1, COL_INICIAL, 1, 7), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    aba.getRange(1, ultimaCol).copyTo(aba.getRange(1, novaCol), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    var colunasTexto = CAMPOS_SNAPSHOT_VEICULO_TEXTO.map(function (n) { return NOMES.indexOf(n) < 7 ? COL_INICIAL + NOMES.indexOf(n) : novaCol; });
+    colunasTexto.forEach(function (col) {
+      aba.getRange(2, col, Math.max(aba.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+    });
+    SpreadsheetApp.flush();
+    return { status: 'migrado', nova_coluna: novaCol, cabecalho: aba.getRange(1, 1, 1, novaCol).getValues()[0] };
   } finally {
     lock.releaseLock();
   }
@@ -465,18 +884,23 @@ function associarVeiculoEstoque_(oportunidadeId, veiculoEstoqueId, usuarioId) {
     // acumulados e gravados numa única chamada setValues (ver
     // gravarCamposLinha_ em Utils.gs), em vez de 9 chamadas setValue
     // separadas -- mesmos campos, mesmos valores.
-    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, {
-      veiculo_estoque_id: veiculo.id,
-      veiculo_estoque_marca: veiculo.marca || '',
-      veiculo_estoque_modelo_versao: veiculo.modeloVersao || '',
-      veiculo_estoque_ano: veiculo.ano || '',
-      veiculo_estoque_km: veiculo.km != null ? veiculo.km : '',
-      veiculo_estoque_preco: veiculo.preco != null ? veiculo.preco : '',
-      veiculo_estoque_imagem: veiculo.imagemPrincipal || '',
-      veiculo_estoque_associado_em: agora,
-      veiculo_interesse: descricaoVeiculo,
-      atualizado_em: agora
+    exigirEstruturaSnapshotVeiculoEstoque_(aba, cabecalho);
+    var snapshotVeiculo = montarSnapshotVeiculoEstoque_(veiculo, agora);
+    var camposAssociacao = { veiculo_interesse: descricaoVeiculo, atualizado_em: agora };
+    CAMPOS_SNAPSHOT_VEICULO_ESTOQUE.forEach(function (nome) {
+      camposAssociacao[nome] = snapshotVeiculo[nome];
     });
+    gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, camposAssociacao);
+    var divergentes = conferirSnapshotGravado_(aba, encontrada.linha, cabecalho, snapshotVeiculo);
+    if (divergentes.length > 0) {
+      // Restaura a linha como estava e nao devolve sucesso (nem gera evento de Timeline).
+      aba.getRange(encontrada.linha, 1, 1, cabecalho.length).setValues([encontrada.linhaValores]);
+      falharSnapshotVeiculo_(
+        'SNAPSHOT_VEICULO_NAO_PERSISTIDO',
+        'campo(s) [' + divergentes.join(', ') + '] nao foram gravados como esperado na oportunidade ' + oportunidadeId +
+        '; a linha foi restaurada ao estado anterior e nenhuma associacao foi registrada.'
+      );
+    }
 
     // Sprint 8: usa a lista cacheada (listUsuarios_) e o helper
     // compartilhado nomeUsuarioPorId_ (Utils.gs, mesmo fallback 'Alguem'
@@ -486,7 +910,7 @@ function associarVeiculoEstoque_(oportunidadeId, veiculoEstoqueId, usuarioId) {
     registrarEventoTimeline_(
       oportunidadeId,
       'veiculo_associado',
-      '"' + nomeUsuarioPorId_(usuarios, usuarioId) + '" associou o veiculo "' + descricaoVeiculo + '" (Simples #' + veiculo.id + ') a oportunidade.',
+      textoEventoAssociacaoVeiculo_(nomeUsuarioPorId_(usuarios, usuarioId), descricaoVeiculo, veiculo.id),
       usuarioId
     );
 
@@ -547,6 +971,8 @@ function criarOportunidade_(dados) {
   if (!responsavelValido) {
     throw new Error('Responsavel invalido: ' + responsavelId);
   }
+  // Melhoria 2 (2026-10-07): usuario inativo nao recebe nova oportunidade.
+  exigirUsuarioAtivoParaAtribuicao_(usuarios, responsavelId);
 
   var etapas = listEtapas_();
   var etapaNovoLead = null;
@@ -555,6 +981,36 @@ function criarOportunidade_(dados) {
   }
   if (!etapaNovoLead) {
     throw new Error('Etapa "Novo Lead" nao encontrada na aba Etapas.');
+  }
+
+  // Melhoria isolada "Etapa inicial na Nova Negociacao" (2026-08-22):
+  // etapaInicialId e opcional -- ausente/undefined preserva exatamente o
+  // comportamento anterior (sempre Novo Lead). Quando informado, so aceita
+  // etapas ATIVAS do funil (nunca Perdido nem Venda/Documentacao) -- reusa
+  // obterEtapaPorId_ (mesmo helper que moverEtapaOportunidade_ ja usa),
+  // nenhuma etapa nova e criada.
+  var etapaInicial = etapaNovoLead;
+  if (dados.etapaInicialId) {
+    var etapaEscolhida = obterEtapaPorId_(dados.etapaInicialId);
+    if (!etapaEscolhida) {
+      throw new Error('Etapa inicial invalida: ' + dados.etapaInicialId);
+    }
+    if (etapaEscolhida.tipo !== 'ativa') {
+      throw new Error('Etapa inicial deve ser uma etapa ativa do funil (nao pode ser "' + etapaEscolhida.nome + '").');
+    }
+    etapaInicial = etapaEscolhida;
+  }
+
+  // Melhoria 8: resolve o veiculo do estoque e valida a estrutura do snapshot
+  // ANTES de qualquer escrita (cliente/oportunidade), para falhar sem efeito
+  // colateral se a planilha estiver sem os cabecalhos obrigatorios.
+  var veiculoEstoque = dados.veiculoEstoqueId ? obterVeiculoEstoquePorId_(dados.veiculoEstoqueId) : null;
+  if (veiculoEstoque) {
+    var abaOportunidadesPre = getAba_(ABAS.OPORTUNIDADES);
+    exigirEstruturaSnapshotVeiculoEstoque_(
+      abaOportunidadesPre,
+      abaOportunidadesPre.getRange(1, 1, 1, abaOportunidadesPre.getLastColumn()).getValues()[0]
+    );
   }
 
   var lock = LockService.getScriptLock();
@@ -567,27 +1023,84 @@ function criarOportunidade_(dados) {
 
     var agora = new Date().toISOString();
     var oportunidadeId = Utilities.getUuid();
+    // Ciclo "Refinamentos Operacionais" (2026-08-18) -- item 4: vinculo
+    // opcional com veiculo do estoque ja na criacao (antes so era possivel
+    // associar depois, pelo SidePanel). Mesmo snapshot congelado (marca/
+    // modelo/ano/km/preco/imagem) que associarVeiculoEstoque_ ja grava,
+    // reaproveitado aqui -- se o id nao existir mais no estoque, ignora
+    // silenciosamente (nao bloqueia a criacao da oportunidade por causa de
+    // um veiculo que saiu do feed entre a busca e o salvar).
+    // (veiculoEstoque ja resolvido antes do lock -- Melhoria 8)
+    var descricaoVeiculoEstoque = veiculoEstoque
+      ? [veiculoEstoque.marca, veiculoEstoque.modeloVersao, veiculoEstoque.ano].filter(function (v) { return !!v; }).join(' ')
+      : '';
+
     var oportunidade = {
       id: oportunidadeId,
       cliente_id: cliente.id,
-      etapa_id: etapaNovoLead.id,
+      etapa_id: etapaInicial.id,
       responsavel_id: responsavelId,
       proxima_acao: dados.proximaAcao || '',
       proxima_acao_data: dados.proximaAcaoData || '',
-      veiculo_interesse: dados.veiculoInteresse || '',
+      veiculo_interesse: descricaoVeiculoEstoque || dados.veiculoInteresse || '',
       origem_id: origemId,
       anotacoes: dados.anotacoesIniciais || '',
       criado_em: agora,
       atualizado_em: agora
     };
-    adicionarLinhaPorCabecalho_(getAba_(ABAS.OPORTUNIDADES), oportunidade);
+    // Melhoria 8: snapshot estruturado do veiculo no momento da criacao (mesmos
+    // nomes de campo da associacao posterior) + conferencia apos gravar.
+    var snapshotVeiculo = null;
+    if (veiculoEstoque) {
+      snapshotVeiculo = montarSnapshotVeiculoEstoque_(veiculoEstoque, agora);
+      CAMPOS_SNAPSHOT_VEICULO_ESTOQUE.forEach(function (nome) {
+        oportunidade[nome] = snapshotVeiculo[nome];
+      });
+    }
+    var abaOportunidades = getAba_(ABAS.OPORTUNIDADES);
+    adicionarLinhaPorCabecalho_(abaOportunidades, oportunidade);
+    if (snapshotVeiculo) {
+      var linhaCriada = abaOportunidades.getLastRow();
+      var cabecalhoCriada = abaOportunidades.getRange(1, 1, 1, abaOportunidades.getLastColumn()).getValues()[0];
+      var linhaEhNossa = String(abaOportunidades.getRange(linhaCriada, cabecalhoCriada.indexOf('id') + 1).getValue()) === String(oportunidadeId);
+      var divergentesCriacao = linhaEhNossa
+        ? conferirSnapshotGravado_(abaOportunidades, linhaCriada, cabecalhoCriada, snapshotVeiculo)
+        : ['linha_criada_nao_localizada'];
+      if (divergentesCriacao.length > 0) {
+        if (linhaEhNossa) {
+          abaOportunidades.getRange(linhaCriada, 1, 1, cabecalhoCriada.length).clearContent();
+        }
+        falharSnapshotVeiculo_(
+          'SNAPSHOT_VEICULO_NAO_PERSISTIDO',
+          'campo(s) [' + divergentesCriacao.join(', ') + '] nao foram gravados como esperado ao criar a oportunidade; ' +
+          'a linha recem-criada foi esvaziada e nenhuma oportunidade foi registrada.'
+        );
+      }
+    }
 
     var usuarioAtorId = dados.usuarioId || responsavelId;
     var descricaoEvento = '"' + nomeUsuarioPorId_(usuarios, usuarioAtorId) + '" criou a oportunidade' +
       (String(usuarioAtorId) !== String(responsavelId)
         ? ' (responsavel: "' + nomeUsuarioPorId_(usuarios, responsavelId) + '")'
+        : '') +
+      // Melhoria isolada "Etapa inicial na Nova Negociacao" (2026-08-22):
+      // so aparece quando a oportunidade nasceu fora de Novo Lead -- e so
+      // registrado AQUI, dentro do mesmo evento "criacao", para nunca gerar
+      // um evento "mudanca_etapa" fabricado (Novo Lead -> etapa escolhida)
+      // que nunca aconteceu de verdade.
+      (String(etapaInicial.id) !== String(etapaNovoLead.id)
+        ? ' ja na etapa "' + etapaInicial.nome + '"'
         : '') + '.';
     registrarEventoTimeline_(oportunidadeId, 'criacao', descricaoEvento, usuarioAtorId);
+    if (snapshotVeiculo) {
+      // Melhoria 8: mesmo evento que a associacao posterior gera (so um por criacao).
+      registrarEventoTimeline_(
+        oportunidadeId,
+        'veiculo_associado',
+        textoEventoAssociacaoVeiculo_(nomeUsuarioPorId_(usuarios, usuarioAtorId), descricaoVeiculoEstoque, veiculoEstoque.id),
+        usuarioAtorId
+      );
+    }
 
     return { oportunidade: oportunidade, cliente: cliente };
   } finally {
@@ -903,6 +1416,8 @@ function atualizarProximaAcao_(oportunidadeId, dados, usuarioId) {
     if (!respValido) {
       throw new Error('Responsável pela próxima ação inválido: ' + responsavelId);
     }
+    // Melhoria 2 (2026-10-07): usuario inativo nao recebe nova Proxima Acao.
+    exigirUsuarioAtivoParaAtribuicao_(usuarios, responsavelId);
 
     var descricaoTipo = tipo === 'Outro' ? outroTexto : tipo;
     var agora = new Date().toISOString();
