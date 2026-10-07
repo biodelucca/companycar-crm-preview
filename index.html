@@ -402,6 +402,121 @@ button {
   background: var(--cor-fundo);
 }
 
+/* Melhoria 5 "Agenda de Próximas Ações no Dashboard" (2026-10-07) — reaproveita
+   .dashboard__secao e .dashboard__lista-acoes; só acrescenta o que é novo:
+   cabeçalho com filtro, grupos (Atrasadas/Hoje/Próximos dias), coluna de
+   horário e o destaque discreto das atrasadas. */
+.agenda__cabecalho {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.agenda__titulo {
+  margin: 0;
+}
+
+.agenda__filtro {
+  padding: 6px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--cor-texto);
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.agenda__grupo {
+  margin-bottom: 16px;
+}
+
+.agenda__grupo:last-child {
+  margin-bottom: 0;
+}
+
+.agenda__grupo-titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cor-texto);
+}
+
+.agenda__grupo-contagem {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--cor-fundo);
+  color: var(--cor-texto-suave);
+}
+
+.agenda__grupo--atrasadas .agenda__grupo-titulo {
+  color: var(--cor-primaria-escura);
+}
+
+.agenda__grupo--atrasadas .agenda__grupo-contagem {
+  background: #fdecec;
+  color: var(--cor-primaria-escura);
+}
+
+.agenda__grupo--atrasadas .agenda__lista li.agenda__item {
+  border-left-color: var(--cor-primaria);
+}
+
+.agenda__grupo--atrasadas .agenda__quando {
+  color: var(--cor-primaria-escura);
+}
+
+.agenda__vazio {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--cor-texto-suave);
+}
+
+.agenda__lista li.agenda__item {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 12px;
+  border-left: 3px solid transparent;
+  padding-left: 10px;
+}
+
+.agenda__quando {
+  flex: 0 0 76px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--cor-texto);
+}
+
+.agenda__corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agenda__ver-mais {
+  margin-top: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--cor-texto-suave);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.agenda__ver-mais:hover {
+  background: var(--cor-fundo);
+}
+
 /* ---------- Pipeline ---------- */
 
 .pipeline-loading {
