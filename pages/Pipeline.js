@@ -1,6 +1,6 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, atualizarProximaAcao, concluirProximaAcao, reabrirOportunidade, reagendarVisita as reagendarVisitaApi, } from "../services/oportunidades.js";
+import { listOportunidades, listEtapas, listClientes, listUsuarios, listMotivosPerda, listOrigens, listTimeline, moverEtapaOportunidade, alterarDataVenda as alterarDataVendaApi, transferirOportunidade, criarOportunidade, excluirOportunidade, editarDadosOportunidade, atualizarProximaAcao, concluirProximaAcao, reabrirOportunidade, reagendarVisita as reagendarVisitaApi, } from "../services/oportunidades.js";
 import { associarVeiculoEstoque, listEstoque, buscarVeiculosEstoque } from "../services/estoque.js";
 import { useAuth } from "../contexts/AuthContext.js";
 import { ERRO_SESSAO_EXPIRADA } from "../services/auth.js";
@@ -8,6 +8,7 @@ import { OpportunityCard } from "../components/OpportunityCard.js";
 import { SidePanel } from "../components/SidePanel.js";
 import { formatarDataHoraCurta } from "../utils/proximaAcao.js";
 import { formatarDataHoraVisita } from "../utils/visitaAgendada.js";
+import { hojeSaoPaulo, validarDataVenda, formatarDataVenda, dataVendaEmMesAnterior } from "../utils/vendaRealizada.js";
 // Pipeline — Kanban agrupado por etapa.
 //
 // Passo 5-8 do roadmap (2026-08-02, Ciclo 4): movimentação de oportunidades
@@ -109,7 +110,14 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     // type="datetime-local">, mesma convenção já usada em nnProximaAcaoData.
     const [visitaModalData, setVisitaModalData] = useState("");
     const [visitaModalErro, setVisitaModalErro] = useState(null);
+    // Melhoria 9 Fase 2B (2026-10-08) -- modal "Confirmar venda" do drop em
+    // Venda/Documentação (mesmo padrão dos modais acima): data da venda
+    // (padrão: hoje em America/Sao_Paulo, nunca futura).
+    const [vendaModalData, setVendaModalData] = useState("");
+    const [vendaModalErro, setVendaModalErro] = useState(null);
     const [salvandoAcao, setSalvandoAcao] = useState(false);
+    // Trava síncrona contra duplo clique (o estado acima só reflete no próximo render).
+    const salvandoAcaoRef = useRef(false);
     const [acaoErro, setAcaoErro] = useState(null);
     // Sprint 3.5 "Nova Negociação" (2026-08-03) — modal do botão "+ Nova
     // Negociação" no topo do Pipeline. Campos obrigatórios/opcionais e regras
@@ -496,7 +504,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
     // backend valida de novo, quem manda é ele). Retorna {ok, erro} em vez de
     // lançar, para as duas UIs (SidePanel e o modal de drop) decidirem o que
     // mostrar sem precisar de try/catch duplicado.
-    async function moverEtapa(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm) {
+    async function moverEtapa(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm, dataVenda) {
         const oportunidade = oportunidades.find((o) => o.id === oportunidadeId);
         const etapaAtual = oportunidade ? etapaPorId(oportunidade.etapaId) : undefined;
         const etapaNova = etapaPorId(novaEtapaId);
@@ -513,6 +521,18 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
         if (etapaNova.nome === "Visita Agendada" && !visitaAgendadaEm) {
             return { ok: false, erro: "Data e horário da visita são obrigatórios ao mover para Visita Agendada." };
         }
+        // Melhoria 9 Fase 2B (2026-10-08) -- mover para Venda/Documentação
+        // exige a data da venda confirmada no modal (primeira barreira; o
+        // backend valida de novo: formato, dia real e não futura).
+        if (etapaNova.tipo === "ganho") {
+            const erroData = validarDataVenda(dataVenda);
+            if (erroData)
+                return { ok: false, erro: erroData };
+        }
+        // Dupla escrita (duplo clique): uma única ação de escrita por vez.
+        if (salvandoAcaoRef.current)
+            return { ok: false, erro: "Aguarde a ação em andamento terminar." };
+        salvandoAcaoRef.current = true;
         setSalvandoAcao(true);
         setAcaoErro(null);
         try {
@@ -523,6 +543,7 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                 motivoPerdaOutroTexto,
                 usuarioId: usuario?.id,
                 visitaAgendadaEm,
+                dataVenda: etapaNova.tipo === "ganho" ? dataVenda : undefined,
             }, idToken);
             const agora = new Date().toISOString();
             const atualizacao = { etapaId: novaEtapaId, atualizadoEm: agora };
@@ -539,6 +560,10 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                 atualizacao.visitaAgendadaEm = visitaAgendadaEm;
                 atualizacao.visitaAgendadaPor = usuario?.id;
             }
+            if (etapaNova.tipo === "ganho") {
+                atualizacao.vendidoEm = dataVenda;
+                atualizacao.vendidoPor = usuario?.id;
+            }
             setOportunidades((prev) => prev.map((o) => (o.id === oportunidadeId ? { ...o, ...atualizacao } : o)));
             const nomeAtor = usuario?.nome ?? "Alguém";
             let descricao = `${nomeAtor} moveu de "${etapaAtual?.nome ?? "?"}" para "${etapaNova.nome}"`;
@@ -547,6 +572,9 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
             }
             else if (etapaNova.nome === "Visita Agendada") {
                 descricao += ` — visita agendada para ${formatarDataHoraVisita(visitaAgendadaEm)}`;
+            }
+            if (etapaNova.tipo === "ganho") {
+                descricao += ` — data da venda: ${formatarDataVenda(dataVenda)}`;
             }
             registrarEvento(oportunidadeId, descricao, "mudanca_etapa");
             return { ok: true };
@@ -557,6 +585,53 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
             return { ok: false, erro: mensagem };
         }
         finally {
+            salvandoAcaoRef.current = false;
+            setSalvandoAcao(false);
+        }
+    }
+    // Melhoria 9 Fase 2B (2026-10-08) -- alteração posterior da data da venda
+    // (SidePanel, só Gerente/Administrador; o backend é quem decide, pela
+    // sessão). Mesmo padrão {ok, erro} das demais ações. Atualiza o estado
+    // local (vendidoEm) e a Timeline local com o mesmo texto do backend.
+    async function alterarDataVendaAcao(oportunidadeId, dataVenda, motivo) {
+        const oportunidade = oportunidades.find((o) => o.id === oportunidadeId);
+        const etapaAtual = oportunidade ? etapaPorId(oportunidade.etapaId) : undefined;
+        if (!oportunidade)
+            return { ok: false, erro: "Oportunidade não encontrada." };
+        if (!etapaAtual || etapaAtual.tipo !== "ganho") {
+            return { ok: false, erro: "A data da venda só pode ser alterada em oportunidades em Venda/Documentação." };
+        }
+        const erroData = validarDataVenda(dataVenda);
+        if (erroData)
+            return { ok: false, erro: erroData };
+        if (!String(motivo ?? "").trim())
+            return { ok: false, erro: "Informe o motivo da alteração." };
+        if (salvandoAcaoRef.current)
+            return { ok: false, erro: "Aguarde a ação em andamento terminar." };
+        const anterior = oportunidade.vendidoEm;
+        salvandoAcaoRef.current = true;
+        setSalvandoAcao(true);
+        setAcaoErro(null);
+        try {
+            const resultado = await alterarDataVendaApi({ oportunidadeId, dataVenda, motivoAlteracao: String(motivo).trim() }, idToken);
+            if (resultado.alterado) {
+                setOportunidades((prev) => prev.map((o) => (o.id === oportunidadeId ? { ...o, vendidoEm: resultado.dataVenda } : o)));
+                const nomeAtor = usuario?.nome ?? "Usuário";
+                const motivoLimpo = String(motivo).replace(/\s+/g, " ").trim();
+                const diaAnterior = formatarDataVenda(anterior);
+                const descricao = diaAnterior
+                    ? `Data da venda alterada — De ${diaAnterior} para ${formatarDataVenda(resultado.dataVenda)}. Motivo: ${motivoLimpo}. Alterado por: ${nomeAtor}.`
+                    : `Data da venda informada manualmente — De não informada para ${formatarDataVenda(resultado.dataVenda)}. Motivo: ${motivoLimpo}. Informado por: ${nomeAtor}.`;
+                registrarEvento(oportunidadeId, descricao, "venda_data_alterada");
+            }
+            return { ok: true, alterado: resultado.alterado };
+        }
+        catch (e) {
+            const mensagem = e instanceof Error ? e.message : "Não foi possível alterar a data da venda agora.";
+            return { ok: false, erro: mensagem };
+        }
+        finally {
+            salvandoAcaoRef.current = false;
             setSalvandoAcao(false);
         }
     }
@@ -1021,6 +1096,17 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                 setMotivoModalErro(null);
                 return;
             }
+            if (etapaNova.tipo === "ganho") {
+                // Melhoria 9 Fase 2B (2026-10-08) — soltar o card em Venda/
+                // Documentação NÃO registra a venda direto: abre a confirmação com
+                // a data da venda (padrão hoje, nunca futura). Cancelar fecha o
+                // modal e o card continua exatamente onde estava (a posição só
+                // muda no estado depois que o backend confirma).
+                setDropPendente({ oportunidadeId, novaEtapaId: etapaId });
+                setVendaModalData(hojeSaoPaulo());
+                setVendaModalErro(null);
+                return;
+            }
             if (etapaNova.nome === "Visita Agendada") {
                 // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24)
                 // — mesmo padrão do bloco "perdido" acima: data/hora são
@@ -1037,6 +1123,28 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
         if (!dropPendente)
             return;
         const etapaAlvo = etapaPorId(dropPendente.novaEtapaId);
+        // Melhoria 9 Fase 2B (2026-10-08) — terceiro uso de dropPendente:
+        // confirmação da venda (data da venda). Nenhuma escrita antes do
+        // "Confirmar venda"; em erro do backend o modal permanece aberto com a
+        // mensagem e o card segue na coluna de origem.
+        if (etapaAlvo?.tipo === "ganho") {
+            if (salvandoAcaoRef.current)
+                return;
+            const erroData = validarDataVenda(vendaModalData);
+            if (erroData) {
+                setVendaModalErro(erroData);
+                return;
+            }
+            setVendaModalErro(null);
+            const resultado = await moverEtapa(dropPendente.oportunidadeId, dropPendente.novaEtapaId, undefined, undefined, undefined, vendaModalData);
+            if (resultado.ok) {
+                setDropPendente(null);
+            }
+            else {
+                setVendaModalErro(resultado.erro ?? "Não foi possível registrar a venda agora.");
+            }
+            return;
+        }
         // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) —
         // dropPendente agora serve dois modais distintos (motivo da perda e
         // data/hora da visita); decide qual validar/confirmar pela etapa de
@@ -1095,8 +1203,8 @@ export function Pipeline({ oportunidadeInicialId, aoConsumirOportunidadeInicial,
                     // filtrado e ordenado) em vez de filtrar+ordenar timelineEventos
                     // inteiro de novo a cada render enquanto o painel está aberto.
                     const eventosDaOportunidade = eventosPorOportunidadeId.get(oportunidadeSelecionada.id) ?? [];
-                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm), onReabrir: (novaEtapaId) => reabrir(oportunidadeSelecionada.id, novaEtapaId), onReagendarVisita: (visitaAgendadaEm) => reagendarVisitaAcao(oportunidadeSelecionada.id, visitaAgendadaEm), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onChecklistMarcado: (textoItem) => registrarEvento(oportunidadeSelecionada.id, `Item do checklist concluído: "${textoItem}"`, "checklist"), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
-                })(), dropPendente && etapaAlvoDropPendente?.nome !== "Visita Agendada" && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), dropPendente && etapaAlvoDropPendente?.nome === "Visita Agendada" && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Visita agendada" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Visita Agendada"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data e hor\u00E1rio da visita *" }), _jsx("input", { type: "datetime-local", value: visitaModalData, onChange: (e) => setVisitaModalData(e.target.value), autoFocus: true })] }), visitaModalErro && _jsx("p", { className: "side-panel__aviso", children: visitaModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo\u2026" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => { setNnTelefone(e.target.value); setNnDuplicidade(null); }, placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
+                    return (_jsx(SidePanel, { oportunidade: oportunidadeSelecionada, cliente: clientePorId(oportunidadeSelecionada.clienteId), responsavel: usuarios.find((u) => u.id === oportunidadeSelecionada.responsavelId), usuarios: usuarios, etapas: etapas, etapaAtual: etapaAtual, motivosPerda: motivosPerda, origens: origens, timelineEventos: eventosDaOportunidade, onFechar: () => setSelecionadaId(null), onMoverEtapa: (novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm, dataVenda) => moverEtapa(oportunidadeSelecionada.id, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, visitaAgendadaEm, dataVenda), onAlterarDataVenda: (dataVenda, motivo) => alterarDataVendaAcao(oportunidadeSelecionada.id, dataVenda, motivo), onReabrir: (novaEtapaId) => reabrir(oportunidadeSelecionada.id, novaEtapaId), onReagendarVisita: (visitaAgendadaEm) => reagendarVisitaAcao(oportunidadeSelecionada.id, visitaAgendadaEm), onTransferir: (novoResponsavelId) => transferir(oportunidadeSelecionada.id, novoResponsavelId), onAssociarVeiculoEstoque: (veiculoEstoqueId) => associarVeiculo(oportunidadeSelecionada.id, veiculoEstoqueId), onSalvarProximaAcao: (dados) => salvarProximaAcao(oportunidadeSelecionada.id, dados), onConcluirProximaAcao: () => concluirAcao(oportunidadeSelecionada.id), onChecklistMarcado: (textoItem) => registrarEvento(oportunidadeSelecionada.id, `Item do checklist concluído: "${textoItem}"`, "checklist"), onEditarDados: (dados) => editarDados(oportunidadeSelecionada.id, dados), onExcluir: () => excluir(oportunidadeSelecionada.id) }));
+                })(), dropPendente && etapaAlvoDropPendente?.tipo === "perdido" && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Motivo da perda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Perdido"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("select", { value: motivoModalAlvo, onChange: (e) => setMotivoModalAlvo(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o motivo da perda\u2026" }), motivosPerda.map((m) => (_jsx("option", { value: m.id, children: m.nome }, m.id)))] }), motivosPerda.find((m) => m.id === motivoModalAlvo)?.nome === "Outro" && (_jsx("input", { type: "text", placeholder: "Descreva o motivo\u2026", value: motivoModalOutro, onChange: (e) => setMotivoModalOutro(e.target.value) })), motivoModalErro && _jsx("p", { className: "side-panel__aviso", children: motivoModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo…" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), dropPendente && etapaAlvoDropPendente?.tipo === "ganho" && (_jsx("div", { className: "drop-motivo-overlay", onClick: () => !salvandoAcao && cancelarDropPendente(), children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Confirmar venda" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para ", etapaAlvoDropPendente?.nome] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data da venda *" }), _jsx("input", { type: "date", value: vendaModalData, max: hojeSaoPaulo(), onChange: (e) => { setVendaModalData(e.target.value); setVendaModalErro(null); }, autoFocus: true })] }), dataVendaEmMesAnterior(vendaModalData) && (_jsx("p", { className: "side-panel__aviso", children: "Esta data é de um mês anterior: a venda será contabilizada naquele mês no Dashboard e nos Relatórios." })), vendaModalErro && _jsx("p", { className: "side-panel__aviso", children: vendaModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao || !vendaModalData, children: salvandoAcao ? "Registrando…" : "Confirmar venda" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, disabled: salvandoAcao, children: "Cancelar" })] })] })] }) })), dropPendente && etapaAlvoDropPendente?.nome === "Visita Agendada" && (_jsx("div", { className: "drop-motivo-overlay", onClick: cancelarDropPendente, children: _jsxs("div", { className: "drop-motivo-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Visita agendada" }), _jsxs("p", { className: "side-panel__cliente", children: ["Movendo \"", oportunidadeDropPendente?.veiculoInteresse ?? "", "\" para Visita Agendada"] }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data e hor\u00E1rio da visita *" }), _jsx("input", { type: "datetime-local", value: visitaModalData, onChange: (e) => setVisitaModalData(e.target.value), autoFocus: true })] }), visitaModalErro && _jsx("p", { className: "side-panel__aviso", children: visitaModalErro }), _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: confirmarDropPendente, disabled: salvandoAcao, children: salvandoAcao ? "Movendo\u2026" : "Confirmar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: cancelarDropPendente, children: "Cancelar" })] })] })] }) })), novaNegociacaoAberta && (_jsx("div", { className: "nova-negociacao-overlay", onClick: fecharNovaNegociacao, children: _jsxs("div", { className: "nova-negociacao-modal", onClick: (e) => e.stopPropagation(), children: [_jsx("h3", { children: "Nova negocia\u00E7\u00E3o" }), _jsxs("div", { className: "side-panel__form", children: [_jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Nome do cliente *" }), _jsx("input", { type: "text", value: nnNome, onChange: (e) => setNnNome(e.target.value), autoFocus: true })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Telefone *" }), _jsx("input", { type: "text", value: nnTelefone, onChange: (e) => { setNnTelefone(e.target.value); setNnDuplicidade(null); }, placeholder: "(48) 99999-0000" })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Origem *" }), _jsxs("select", { value: nnOrigemId, onChange: (e) => setNnOrigemId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione a origem\u2026" }), origens.map((o) => (_jsx("option", { value: o.id, children: o.nome }, o.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Respons\u00E1vel *" }), _jsxs("select", { value: nnResponsavelId, onChange: (e) => setNnResponsavelId(e.target.value), children: [_jsx("option", { value: "", children: "Selecione o respons\u00E1vel\u2026" }), usuarios
                                                     .filter((u) => u.ativo)
                                                     .map((u) => (_jsx("option", { value: u.id, children: u.nome }, u.id)))] })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Etapa inicial" }), _jsx("select", { value: nnEtapaInicialId, onChange: (e) => setNnEtapaInicialId(e.target.value), children: etapasElegiveisCriacao.map((et) => (_jsx("option", { value: et.id, children: et.nome }, et.id))) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Cidade" }), _jsx("input", { type: "text", value: nnCidade, onChange: (e) => setNnCidade(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Ve\u00EDculo de interesse" }), _jsx("input", { type: "text", value: nnVeiculoInteresse, onChange: (e) => setNnVeiculoInteresse(e.target.value) })] }), _jsxs("div", { className: "side-panel__secao", children: [_jsx("h3", { className: "side-panel__secao-titulo", children: "Ve\u00EDculo do estoque (opcional)" }), nnVeiculoEstoqueId && (_jsxs("p", { className: "side-panel__proxima-acao-meta", children: ["Vinculado ao estoque.", " ", _jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: removerVeiculoEstoqueNovaNegociacao, children: "Remover v\u00EDnculo" })] })), !nnVeiculoEstoqueId && !nnBuscaVeiculoAberta && (_jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => setNnBuscaVeiculoAberta(true), children: "Vincular ve\u00EDculo do estoque" })), !nnVeiculoEstoqueId && nnBuscaVeiculoAberta && (_jsxs("div", { className: "side-panel__form", children: [_jsx("input", { type: "text", placeholder: "Buscar por marca, modelo/vers\u00E3o ou ano\u2026", value: nnTermoBuscaVeiculo, onChange: (e) => setNnTermoBuscaVeiculo(e.target.value), autoFocus: true }), nnEstoqueCarregando && _jsx("p", { className: "side-panel__vazio-aba", children: "Carregando estoque\u2026" }), !nnEstoqueCarregando && !nnEstoqueErro && (_jsxs("ul", { className: "side-panel__estoque-resultados", children: [nnResultadosBusca.length === 0 && (_jsx("li", { className: "side-panel__vazio-aba", children: "Nenhum ve\u00EDculo encontrado." })), nnResultadosBusca.map((v) => (_jsxs("li", { className: "side-panel__estoque-item", children: [v.imagemPrincipal && _jsx("img", { src: v.imagemPrincipal, alt: v.modeloVersao ?? "Ve\u00EDculo" }), _jsx("div", { className: "side-panel__estoque-item-info", children: _jsx("strong", { children: [v.marca, v.modeloVersao, v.ano].filter(Boolean).join(" ") }) }), _jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: () => selecionarVeiculoEstoqueNovaNegociacao(v), children: "Selecionar" })] }, v.id)))] })), nnEstoqueErro && _jsx("p", { className: "side-panel__aviso", children: nnEstoqueErro }), _jsx("div", { className: "side-panel__form-acoes", children: _jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => { setNnBuscaVeiculoAberta(false); setNnTermoBuscaVeiculo(""); }, children: "Cancelar" }) })] }))] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Anota\u00E7\u00F5es iniciais" }), _jsx("textarea", { value: nnAnotacoes, onChange: (e) => setNnAnotacoes(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "text", value: nnProximaAcao, onChange: (e) => setNnProximaAcao(e.target.value) })] }), _jsxs("label", { className: "side-panel__campo", children: [_jsx("span", { children: "Data e hora da pr\u00F3xima a\u00E7\u00E3o" }), _jsx("input", { type: "datetime-local", value: nnProximaAcaoData, onChange: (e) => setNnProximaAcaoData(e.target.value) })] }), nnErro && _jsx("p", { className: "side-panel__aviso", children: nnErro }), nnDuplicidade ? renderAlertaDuplicidade() : _jsxs("div", { className: "side-panel__form-acoes", children: [_jsx("button", { className: "side-panel__botao-primario", onClick: () => salvarNovaNegociacao(false), disabled: nnSalvando, children: nnSalvando ? "Salvando…" : "Salvar" }), _jsx("button", { className: "side-panel__botao-secundario", onClick: fecharNovaNegociacao, disabled: nnSalvando, children: "Cancelar" })] })] })] }) }))] }));
 }
