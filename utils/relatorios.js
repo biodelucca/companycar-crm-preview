@@ -147,7 +147,11 @@ export function rotuloResponsavel(usuario) {
 // ---------------------------------------------------------------------------
 
 function timestamp(inst) {
-    const t = Date.parse(inst);
+    // Melhoria 9 Fase 2B: data pura ("AAAA-MM-DD", vendido_em novo) vale meio-dia
+    // em Sao Paulo -- Date.parse a leria como meia-noite UTC (21h do dia anterior
+    // no Brasil) e a ordenacao poderia trocar a ordem com instantes ISO do mesmo dia.
+    const s = String(inst ?? "");
+    const t = /^\d{4}-\d{2}-\d{2}$/.test(s) ? Date.parse(`${s}T12:00:00-03:00`) : Date.parse(inst);
     return Number.isNaN(t) ? null : t;
 }
 
