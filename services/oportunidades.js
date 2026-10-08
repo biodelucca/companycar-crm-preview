@@ -240,9 +240,34 @@ export async function moverEtapaOportunidade(dados, idToken) {
             // (validação/exigência fica no backend, ver moverEtapaOportunidade_
             // em Oportunidades.gs); undefined nos demais casos, sem efeito.
             visitaAgendadaEm: dados.visitaAgendadaEm,
+            // Melhoria 9 Fase 2B (2026-10-08) -- data comercial da venda
+            // ("AAAA-MM-DD"), so relevante ao mover para Venda/Documentação;
+            // o backend valida (formato, dia real, nao futura) e, se vier
+            // vazia, assume hoje (America/Sao_Paulo).
+            dataVenda: dados.dataVenda,
         },
         idToken: idToken ?? undefined,
     });
+}
+// Melhoria 9 Fase 2B (2026-10-08) -- alteracao POSTERIOR da data da venda
+// (exclusiva de Gerente/Administrador; o backend decide, pela sessao). Nao
+// envia usuarioId: o ator e sempre o usuario da sessao. Ver alterarDataVenda_
+// em Oportunidades.gs. Devolve { alterado, dataVenda, dataAnterior }.
+export async function alterarDataVenda(dados, idToken) {
+    const raw = await apiClient.request({
+        action: "alterarDataVenda",
+        body: {
+            oportunidadeId: dados.oportunidadeId,
+            dataVenda: dados.dataVenda,
+            motivoAlteracao: dados.motivoAlteracao,
+        },
+        idToken: idToken ?? undefined,
+    });
+    return {
+        alterado: !raw || raw.alterado !== false,
+        dataVenda: raw && raw.dataVenda ? String(raw.dataVenda) : dados.dataVenda,
+        dataAnterior: raw && raw.dataAnterior ? String(raw.dataAnterior) : "",
+    };
 }
 // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) —
 // reagendamento da visita já marcada (a entrada inicial na etapa é
