@@ -103,13 +103,32 @@ function doGet(e) {
 // continua disponivel em POST mesmo com corpo JSON. Sem este ajuste o
 // webhook rejeitaria toda mensagem real com erro de secret invalido.
 var ACOES_POST_SEM_SESSAO = {
-  whatsappWebhook: true
+  whatsappWebhook: true,
+  mobiautoWebhook: true
 };
 
 var ACOES_POST = {
   salvarAnotacao: function (dados) { return salvarAnotacao_(dados.oportunidadeId, dados.anotacoes); },
   moverEtapaOportunidade: function (dados) {
-    return moverEtapaOportunidade_(dados.oportunidadeId, dados.novaEtapaId, dados.motivoPerdaId, dados.motivoPerdaOutroTexto, dados.usuarioId);
+    return moverEtapaOportunidade_(dados.oportunidadeId, dados.novaEtapaId, dados.motivoPerdaId, dados.motivoPerdaOutroTexto, dados.usuarioId, dados.visitaAgendadaEm);
+  },
+  // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
+  // reagendamento da visita já marcada (a entrada inicial na etapa é
+  // coberta pela própria moverEtapaOportunidade acima, que já recebe
+  // visitaAgendadaEm). Ver reagendarVisita_ em Oportunidades.gs. Herda a
+  // mesma exigência de sessão válida de qualquer outra escrita (não entra
+  // em ACOES_POST_SEM_SESSAO) -- mesma lógica de permissão já usada por
+  // moverEtapaOportunidade, sem ampliar nada.
+  reagendarVisita: function (dados) {
+    return reagendarVisita_(dados.oportunidadeId, dados.visitaAgendadaEm, dados.usuarioId);
+  },
+  // Item 5 "Reabrir oportunidade perdida" (Ciclo 22, 2026-08-18) -- ver
+  // reabrirOportunidade_ em Oportunidades.gs. Herda a mesma exigencia de
+  // sessao valida de qualquer outra escrita (nao entra em
+  // ACOES_POST_SEM_SESSAO) -- mesma logica de permissao ja usada por
+  // moverEtapaOportunidade acima, sem ampliar nada.
+  reabrirOportunidade: function (dados) {
+    return reabrirOportunidade_(dados.oportunidadeId, dados.novaEtapaId, dados.usuarioId);
   },
   transferirOportunidade: function (dados) {
     return transferirOportunidade_(dados.oportunidadeId, dados.novoResponsavelId, dados.usuarioId);
@@ -163,6 +182,20 @@ var ACOES_POST = {
     }
     return receberWebhookWhatsapp_(dados);
   },
+  // Fase 2 Mobiauto (2026-08-17) -- ver MobiAuto.gs. Mesmo padrao do
+  // whatsappWebhook acima: secret so pode vir na query string, porque a
+  // Mobiauto manda o payload puro do lead no corpo, sem espaco pra um
+  // campo nosso.
+  mobiautoWebhook: function (dados, e) {
+  if (!dados.secret && e && e.parameter && e.parameter.secret) {
+  dados.secret = e.parameter.secret;
+  }
+  var resultadoMobiauto, erroMobiauto;
+  try { resultadoMobiauto = receberWebhookMobiauto_(dados, dados.secret); } catch (erro) { erroMobiauto = erro; }
+  registrarDiagnosticoMobiauto_(e, dados, resultadoMobiauto, erroMobiauto);
+  if (erroMobiauto) { throw erroMobiauto; }
+  return resultadoMobiauto;
+  },
   enviarMensagemWhatsapp: function (dados) {
     return enviarMensagemWhatsapp_(dados.oportunidadeId, dados.texto, dados.usuarioId);
   },
@@ -177,6 +210,15 @@ var ACOES_POST = {
 
 function doPost(e) {
   var action = e.parameter.action;
+  // Fase 3 Mobiauto (2026-08-17): URL dedicada sem query string (portal nao aceita ?action=/&secret=).
+  var pathInfoMobiauto = null;
+  if (!action && e.pathInfo) {
+  var partesPathMobiauto = e.pathInfo.split('/');
+  if (partesPathMobiauto[0] === 'mobiauto' && partesPathMobiauto[1]) {
+  action = 'mobiautoWebhook';
+  pathInfoMobiauto = partesPathMobiauto[1];
+  }
+  }
   var handler = ACOES_POST[action];
 
   if (!handler) {
@@ -189,8 +231,12 @@ function doPost(e) {
       dados = JSON.parse(e.postData.contents);
     }
   } catch (erro) {
+    if (action === 'mobiautoWebhook') { registrarDiagnosticoMobiautoJsonInvalido_(e); }
     return respostaErro_('Corpo da requisicao invalido (esperado JSON).');
   }
+  if (!dados.secret && pathInfoMobiauto) {
+    dados.secret = pathInfoMobiauto;
+    }
 
   try {
     // Hotfix "Visibilidade por Usuário" (2026-08-10): mesma resolução de
@@ -206,6 +252,12 @@ function doPost(e) {
     var usuarioAutenticado = null;
     if (!ACOES_POST_SEM_SESSAO[action]) {
       usuarioAutenticado = obterUsuarioAutenticado_(dados.sessionToken || dados.idToken);
+    }
+    // Melhoria 9 Fase 2A (2026-10-08): autorizacao central das acoes HUMANAS
+    // de escrita e ator confiavel (ver Permissoes.gs). Os webhooks
+    // (ACOES_POST_SEM_SESSAO) autenticam por secret proprio e ficam de fora.
+    if (!ACOES_POST_SEM_SESSAO[action]) {
+      dados = aplicarAutorizacaoEscrita_(action, dados, usuarioAutenticado);
     }
     return respostaOk_(handler(dados, e, usuarioAutenticado));
   } catch (erro) {
