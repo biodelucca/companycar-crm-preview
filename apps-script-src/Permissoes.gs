@@ -61,6 +61,9 @@ var _modoAutorizacaoTeste_ = null;
  *  transferencia -- Gerente/Admin, responsavel atual, ou visao global quando
  *                   o responsavel atual esta inativo/inexistente.
  *  exclusao      -- Gerente/Admin; responsavel atual somente se etapa 'ativa'.
+ *  gerencial     -- SOMENTE Gerente/Admin (nem o responsavel atual, nem visao
+ *                   global). Fase 2B: classe com aplicarSempre=true -- a negacao
+ *                   vale mesmo com o modo geral em 'observar'.
  * Toda acao humana de escrita DEVE constar aqui; acao sem politica e negada
  * (em modo aplicar) e registrada (em ambos os modos).
  */
@@ -78,7 +81,10 @@ var POLITICA_ESCRITA_ = {
   enviarMensagemWhatsapp:       { classe: 'responsavel',   rotulo: 'whatsapp_enviar' },
   vincularConversaOportunidade: { classe: 'responsavel',   rotulo: 'whatsapp_vincular' },
   transferirOportunidade:       { classe: 'transferencia', rotulo: 'transferir' },
-  excluirOportunidade:          { classe: 'exclusao',      rotulo: 'excluir' }
+  excluirOportunidade:          { classe: 'exclusao',      rotulo: 'excluir' },
+  // Melhoria 9 Fase 2B (2026-10-08): editar a data da venda ja registrada.
+  // aplicarSempre: efetiva desde a publicacao, mesmo em modo 'observar'.
+  alterarDataVenda:             { classe: 'gerencial',     rotulo: 'alterar_data_venda', aplicarSempre: true }
 };
 
 function obterModoAutorizacaoEscrita_() {
@@ -186,6 +192,10 @@ function decidirAutorizacaoEscrita_(usuario, politica, contexto) {
   if (contexto.excluida) { return nao('OPORTUNIDADE_EXCLUIDA'); }
 
   var gerente = autorizacaoGerenteOuAdmin_(usuario);
+  if (politica.classe === 'gerencial') {
+    if (gerente) { return sim('GERENTE_ADMIN'); }
+    return nao('SOMENTE_GERENTE_ADMIN');
+  }
   var responsavel = contexto.responsavelId !== '' && String(contexto.responsavelId) === String(usuario.id);
 
   if (politica.classe === 'exclusao') {
@@ -218,6 +228,8 @@ function aplicarAutorizacaoEscrita_(acao, dados, usuarioAutenticado) {
   dados = dados || {};
   var modo = obterModoAutorizacaoEscrita_();
   var politica = POLITICA_ESCRITA_[acao] || null;
+  // Classes 'aplicarSempre' (Fase 2B) negam de verdade em qualquer modo.
+  var negarSempre = !!(politica && politica.aplicarSempre === true);
   var contexto = null;
   var decisao;
   var detalhe = [];
@@ -251,7 +263,7 @@ function aplicarAutorizacaoEscrita_(acao, dados, usuarioAutenticado) {
 
   if (modo === 'observar' || !decisao.permitido || atorDivergente) {
     registrarDecisaoAutorizacaoEscrita_({
-      modo: modo,
+      modo: (modo === 'observar' && negarSempre && !decisao.permitido) ? 'aplicar_gerencial' : modo,
       acao: rotulo,
       usuarioId: usuarioAutenticado ? usuarioAutenticado.id : '',
       papel: usuarioAutenticado ? usuarioAutenticado.papel : '',
@@ -263,7 +275,7 @@ function aplicarAutorizacaoEscrita_(acao, dados, usuarioAutenticado) {
     });
   }
 
-  if (!decisao.permitido && modo === 'aplicar') {
+  if (!decisao.permitido && (modo === 'aplicar' || negarSempre)) {
     throw new Error(decisao.motivo === 'USUARIO_INATIVO' ? MENSAGEM_USUARIO_INATIVO_ESCRITA_ : MENSAGEM_SEM_PERMISSAO_ESCRITA_);
   }
   return dados;

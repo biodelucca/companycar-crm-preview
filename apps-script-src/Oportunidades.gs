@@ -321,12 +321,88 @@ function obterEtapaPorId_(etapaId) {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Melhoria 9 -- Fase 2B (2026-10-08): "Data da Venda" editavel.
+//
+// vendido_em passa a poder guardar a DATA COMERCIAL da venda como texto puro
+// 'AAAA-MM-DD' (dia civil em America/Sao_Paulo, sem hora e sem fuso -- nao ha
+// como deslocar um dia). Os 31 registros antigos, gravados como instante ISO
+// UTC (new Date().toISOString()), NAO sao convertidos: todo codigo que le o
+// campo aceita os dois formatos (ver dataVendaParaDia_). O instante real da
+// movimentacao continua registrado na Timeline (data_hora do evento).
+// ---------------------------------------------------------------------------
+
+var DATA_VENDA_MOTIVO_MAX_ = 500;
+
+// Dia de hoje (AAAA-MM-DD) em America/Sao_Paulo.
+function dataComercialHoje_() {
+  return Utilities.formatDate(new Date(), 'America/Sao_Paulo', 'yyyy-MM-dd');
+}
+
+// Valida e normaliza uma data de venda informada pelo usuario.
+// Aceita somente 'AAAA-MM-DD' de um dia real do calendario; recusa data
+// futura (comparada ao dia de hoje em America/Sao_Paulo). Sem limite
+// inferior arbitrario (qualquer mes passado e permitido). Lanca erro claro.
+function normalizarDataVenda_(valor) {
+  var s = (valor === undefined || valor === null) ? '' : String(valor).trim();
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) {
+    throw new Error('Data da venda invalida. Use o formato AAAA-MM-DD.');
+  }
+  var ano = Number(m[1]), mes = Number(m[2]), dia = Number(m[3]);
+  var d = new Date(Date.UTC(ano, mes - 1, dia));
+  if (d.getUTCFullYear() !== ano || d.getUTCMonth() !== mes - 1 || d.getUTCDate() !== dia) {
+    throw new Error('Data da venda invalida: o dia informado nao existe no calendario.');
+  }
+  if (s > dataComercialHoje_()) {
+    throw new Error('A data da venda nao pode ser futura.');
+  }
+  return s;
+}
+
+// Dia comercial (AAAA-MM-DD) de um valor de vendido_em guardado na planilha:
+// data pura -> ela mesma; instante ISO (registros antigos) -> dia em
+// America/Sao_Paulo; Date (caso a celula tenha sido convertida pelo Sheets)
+// -> dia em America/Sao_Paulo; vazio/invalido -> ''.
+function dataVendaParaDia_(valor) {
+  if (valor === undefined || valor === null || valor === '') return '';
+  if (Object.prototype.toString.call(valor) === '[object Date]') {
+    if (isNaN(valor.getTime())) return '';
+    return Utilities.formatDate(valor, 'America/Sao_Paulo', 'yyyy-MM-dd');
+  }
+  var s = String(valor).trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var d = new Date(s);
+  if (isNaN(d.getTime())) return '';
+  return Utilities.formatDate(d, 'America/Sao_Paulo', 'yyyy-MM-dd');
+}
+
+// 'AAAA-MM-DD' -> 'DD/MM/AAAA' ('' se vazio/invalido).
+function formatarDiaBR_(dia) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dia || ''));
+  return m ? (m[3] + '/' + m[2] + '/' + m[1]) : '';
+}
+
+// Garante que a coluna vendido_em aceite texto puro: sem o formato '@' o
+// Sheets converteria '2026-09-30' em data (e getValues devolveria Date em vez
+// do texto). Nao altera nenhum valor existente (so o formato de exibicao) e
+// e idempotente: so reaplica se a primeira linha de dados ainda nao for texto.
+function garantirFormatoTextoVendidoEm_(aba, cabecalho) {
+  var col = cabecalho.indexOf('vendido_em');
+  if (col === -1) return;
+  var primeira = aba.getRange(2, col + 1);
+  if (primeira.getNumberFormat() !== '@') {
+    aba.getRange(2, col + 1, Math.max(aba.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+  }
+}
+
 // Mover etapa — usado tanto pelo seletor por botão (SidePanel, mobile e
 // fallback desktop) quanto pelo novo drag-and-drop (Pipeline, desktop).
 // Duas camadas de validação de etapa final, mesma filosofia já usada no
 // frontend desde o Ciclo 4: aqui é a camada de verdade (o frontend também
 // valida antes de chamar, mas quem manda é o backend).
-function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, usuarioId, visitaAgendadaEm) {
+function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, motivoPerdaOutroTexto, usuarioId, visitaAgendadaEm, dataVenda) {
   if (!oportunidadeId || !novaEtapaId) {
     throw new Error('oportunidadeId e novaEtapaId sao obrigatorios.');
   }
@@ -375,6 +451,17 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       throw new Error('Data e horario da visita sao obrigatorios ao mover para Visita Agendada.');
     }
 
+    // Melhoria 9 Fase 2B (2026-10-08) -- data da venda: validada ANTES de
+    // qualquer escrita (sem escrita parcial). Sem dataVenda (frontend
+    // antigo ainda em cache durante a publicacao) vale o dia de hoje em
+    // America/Sao_Paulo; data informada nao pode ser futura nem inexistente.
+    var dataVendaDia = '';
+    if (etapaNova.tipo === 'ganho') {
+      dataVendaDia = (dataVenda === undefined || dataVenda === null || String(dataVenda).trim() === '')
+        ? dataComercialHoje_()
+        : normalizarDataVenda_(dataVenda);
+    }
+
     var agora = new Date().toISOString();
     // Sprint 8 "Performance e Estabilidade" (2026-08-10): campos
     // acumulados num objeto e gravados numa única chamada setValues (ver
@@ -416,12 +503,14 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
     // escreve o campo, e so uma vez.
     if (etapaNova.tipo === 'ganho') {
       var colVendidoEmAtual = cabecalho.indexOf('vendido_em');
-        var vendidoEmAtual = colVendidoEmAtual !== -1 ? encontrada.linhaValores[colVendidoEmAtual] : '';
-          if (!vendidoEmAtual) {
-              campos.vendido_em = agora;
-                  campos.vendido_por = usuarioId || '';
-                    }
-                    }
+      var vendidoEmAtual = colVendidoEmAtual !== -1 ? encontrada.linhaValores[colVendidoEmAtual] : '';
+      if (!vendidoEmAtual) {
+        // Fase 2B: vendido_em = data comercial informada (AAAA-MM-DD), nao
+        // mais o instante da movimentacao (esse fica no evento da Timeline).
+        campos.vendido_em = dataVendaDia;
+        campos.vendido_por = usuarioId || '';
+      }
+    }
 
     // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
     // grava a data/hora estruturada só ao ENTRAR na etapa (mesmo lock desta
@@ -433,6 +522,10 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       campos.visita_agendada_em = visitaAgendadaEm;
       campos.visita_agendada_por = usuarioId || '';
     }
+    if (campos.vendido_em) {
+      garantirFormatoTextoVendidoEm_(aba, cabecalho);
+    }
+    var linhaOriginal = encontrada.linhaValores.slice();
     gravarCamposLinha_(aba, encontrada.linha, cabecalho, encontrada.linhaValores, campos);
 
     var descricaoEvento = 'Movida de "' + (etapaAtual ? etapaAtual.nome : '?') + '" para "' + etapaNova.nome + '"';
@@ -447,11 +540,125 @@ function moverEtapaOportunidade_(oportunidadeId, novaEtapaId, motivoPerdaId, mot
       descricaoEvento += ' -- visita agendada para ' + formatarDataHoraVisita_(visitaAgendadaEm);
     }
     if (etapaNova.tipo === 'ganho' && campos.vendido_em) {
-      descricaoEvento += ' -- venda registrada em ' + formatarDataHoraVenda_(campos.vendido_em);
+      descricaoEvento += ' -- data da venda: ' + formatarDiaBR_(campos.vendido_em);
+    }
+    if (etapaNova.tipo === 'ganho') {
+      // Sem escrita parcial: se o evento da Timeline falhar, a linha volta
+      // ao estado anterior (a movimentacao para Venda nao fica "meio feita").
+      try {
+        registrarEventoTimeline_(oportunidadeId, 'mudanca_etapa', descricaoEvento, usuarioId);
+      } catch (erroEvento) {
+        try { aba.getRange(encontrada.linha, 1, 1, cabecalho.length).setValues([linhaOriginal]); } catch (erroRestaurar) { /* melhor esforco */ }
+        throw erroEvento;
       }
-    registrarEventoTimeline_(oportunidadeId, 'mudanca_etapa', descricaoEvento, usuarioId);
+    } else {
+      registrarEventoTimeline_(oportunidadeId, 'mudanca_etapa', descricaoEvento, usuarioId);
+    }
 
     return { oportunidadeId: oportunidadeId, etapaId: novaEtapaId };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// Melhoria 9 Fase 2B (2026-10-08) -- alteracao POSTERIOR da data da venda.
+// Exclusiva de Gerente/Administrador, EFETIVA desde a publicacao
+// independentemente do modo geral de autorizacao (observar/aplicar): a
+// decisao vem da MESMA funcao central (decidirAutorizacaoEscrita_, classe
+// 'gerencial' em Permissoes.gs) e e verificada aqui dentro, com o usuario da
+// SESSAO (nunca um usuarioId vindo do navegador). So vale para oportunidade
+// em etapa tipo 'ganho' (Venda/Documentacao), nao excluida.
+// - data nova: AAAA-MM-DD, dia real, nao futura (sem limite inferior);
+// - motivo obrigatorio (fica no evento 'venda_data_alterada' da Timeline,
+//   sem coluna nova); o evento original da venda NUNCA e alterado;
+// - mesma data da atual -> nada e gravado e nenhum evento e criado;
+// - vendas antigas SEM vendido_em: o gerente pode informar a data
+//   manualmente (anterior = "nao informada"); nada e inferido da Timeline;
+// - so a celula vendido_em e escrita (vendido_por e atualizado_em ficam).
+function alterarDataVenda_(oportunidadeId, novaData, motivo, usuarioAutenticado) {
+  if (!usuarioAutenticado || usuarioAutenticado.id === undefined || usuarioAutenticado.id === null || usuarioAutenticado.id === '') {
+    throw new Error('alterarDataVenda_ requer usuario autenticado (contexto de sessao).');
+  }
+  if (!oportunidadeId) {
+    throw new Error('oportunidadeId e obrigatorio.');
+  }
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var aba = getAba_(ABAS.OPORTUNIDADES);
+    var encontrada = encontrarLinhaOportunidade_(aba, oportunidadeId);
+    if (!encontrada) {
+      throw new Error('Oportunidade nao encontrada: ' + oportunidadeId);
+    }
+    var cabecalho = encontrada.cabecalho;
+    var valores = encontrada.linhaValores;
+    var colExcluido = cabecalho.indexOf('excluido_em');
+    var colResp = cabecalho.indexOf('responsavel_id');
+    var colVendido = cabecalho.indexOf('vendido_em');
+    var etapaAtualId = valores[cabecalho.indexOf('etapa_id')];
+    var etapaAtual = obterEtapaPorId_(etapaAtualId);
+
+    // 1) Autorizacao -- incondicional (nao depende do modo observar/aplicar).
+    var contexto = {
+      existe: true,
+      excluida: colExcluido !== -1 && !!valores[colExcluido],
+      responsavelId: colResp !== -1 && valores[colResp] !== null && valores[colResp] !== undefined ? String(valores[colResp]) : '',
+      etapaId: etapaAtualId,
+      etapaTipo: etapaAtual ? String(etapaAtual.tipo) : ''
+    };
+    var decisao = decidirAutorizacaoEscrita_(usuarioAutenticado, POLITICA_ESCRITA_.alterarDataVenda, contexto);
+    if (!decisao.permitido) {
+      throw new Error(decisao.motivo === 'USUARIO_INATIVO' ? MENSAGEM_USUARIO_INATIVO_ESCRITA_ : MENSAGEM_SEM_PERMISSAO_ESCRITA_);
+    }
+    if (colVendido === -1) {
+      throw new Error('Coluna vendido_em nao encontrada na aba Oportunidades.');
+    }
+
+    // 2) Regra de negocio: somente oportunidade em Venda/Documentacao.
+    if (!etapaAtual || etapaAtual.tipo !== 'ganho') {
+      throw new Error('A data da venda so pode ser alterada em oportunidades na etapa Venda/Documentação.');
+    }
+
+    // 3) Validacoes (antes de qualquer escrita).
+    var novoDia = normalizarDataVenda_(novaData);
+    var motivoLimpo = String(motivo === undefined || motivo === null ? '' : motivo).replace(/\s+/g, ' ').trim();
+    if (!motivoLimpo) {
+      throw new Error('Informe o motivo da alteração da data da venda.');
+    }
+    if (motivoLimpo.length > DATA_VENDA_MOTIVO_MAX_) {
+      throw new Error('O motivo da alteração deve ter no máximo ' + DATA_VENDA_MOTIVO_MAX_ + ' caracteres.');
+    }
+
+    var valorAnterior = valores[colVendido];
+    var diaAnterior = dataVendaParaDia_(valorAnterior);
+    if (diaAnterior === novoDia) {
+      return { oportunidadeId: oportunidadeId, vendidoEm: valorAnterior, dataVenda: novoDia, alterado: false };
+    }
+
+    // 4) Escrita: apenas a celula vendido_em, como texto puro; se o evento da
+    // Timeline falhar, o valor anterior e restaurado (sem escrita parcial).
+    garantirFormatoTextoVendidoEm_(aba, cabecalho);
+    var celula = aba.getRange(encontrada.linha, colVendido + 1);
+    var valorAnteriorBruto = valorAnterior === undefined || valorAnterior === null ? '' : valorAnterior;
+    celula.setValue(novoDia);
+
+    var nomeAutor = String(usuarioAutenticado.nome || '').trim() || 'Usuário';
+    var descricao;
+    if (diaAnterior) {
+      descricao = 'Data da venda alterada — De ' + formatarDiaBR_(diaAnterior) + ' para ' + formatarDiaBR_(novoDia) +
+        '. Motivo: ' + motivoLimpo + '. Alterado por: ' + nomeAutor + '.';
+    } else {
+      descricao = 'Data da venda informada manualmente — De não informada para ' + formatarDiaBR_(novoDia) +
+        '. Motivo: ' + motivoLimpo + '. Informado por: ' + nomeAutor + '.';
+    }
+    try {
+      registrarEventoTimeline_(oportunidadeId, 'venda_data_alterada', descricao, usuarioAutenticado.id);
+    } catch (erroEvento) {
+      try { celula.setValue(valorAnteriorBruto); } catch (erroRestaurar) { /* melhor esforco */ }
+      throw erroEvento;
+    }
+
+    return { oportunidadeId: oportunidadeId, vendidoEm: novoDia, dataVenda: novoDia, alterado: true, dataAnterior: diaAnterior };
   } finally {
     lock.releaseLock();
   }

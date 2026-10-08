@@ -110,7 +110,15 @@ var ACOES_POST_SEM_SESSAO = {
 var ACOES_POST = {
   salvarAnotacao: function (dados) { return salvarAnotacao_(dados.oportunidadeId, dados.anotacoes); },
   moverEtapaOportunidade: function (dados) {
-    return moverEtapaOportunidade_(dados.oportunidadeId, dados.novaEtapaId, dados.motivoPerdaId, dados.motivoPerdaOutroTexto, dados.usuarioId, dados.visitaAgendadaEm);
+    return moverEtapaOportunidade_(dados.oportunidadeId, dados.novaEtapaId, dados.motivoPerdaId, dados.motivoPerdaOutroTexto, dados.usuarioId, dados.visitaAgendadaEm, dados.dataVenda);
+  },
+  // Melhoria 9 Fase 2B (2026-10-08) -- alteracao posterior da data da venda
+  // (exclusiva de Gerente/Administrador; ver alterarDataVenda_ em
+  // Oportunidades.gs e a classe 'gerencial' em Permissoes.gs). Acao HUMANA:
+  // exige sessao valida (nao entra em ACOES_POST_SEM_SESSAO) e usa o usuario
+  // da sessao (3o parametro), nunca o usuarioId do corpo.
+  alterarDataVenda: function (dados, e, usuarioAutenticado) {
+    return alterarDataVenda_(dados.oportunidadeId, dados.dataVenda, dados.motivoAlteracao, usuarioAutenticado);
   },
   // Melhoria isolada "Visita Agendada com data e hora" (2026-08-24) --
   // reagendamento da visita já marcada (a entrada inicial na etapa é
