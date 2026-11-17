@@ -2227,6 +2227,165 @@ button {
     justify-content: space-between;
   }
 }
+
+/* ---------- Buscas de Veículos (Melhoria 10 / Etapa 2B, 2026-11-17) ---------- */
+/* Reaproveita .relatorios__* (página), .side-panel__* (painel/formulários) e
+   .drop-motivo-* (confirmações); só o que é próprio das buscas está aqui. */
+.buscas__selo {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  background: #eee;
+  color: #444;
+  white-space: nowrap;
+}
+.buscas__selo--ativa { background: #e6f4ea; color: #1b6b36; }
+.buscas__selo--alerta { background: #fff3e0; color: #9a5a00; }
+.buscas__selo--vencida { background: #fdeaea; color: var(--cor-primaria-escura); }
+.buscas__selo--encerrada { background: #ececef; color: #55555b; }
+.buscas__selo--recuperada { background: #e7effd; color: #1f4fa8; }
+
+.buscas__aba { display: flex; flex-direction: column; gap: 12px; }
+.buscas__lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.buscas__cartao {
+  border: 1px solid var(--cor-borda);
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+.buscas__cartao-topo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.buscas__cartao-topo:hover { background: var(--cor-fundo); }
+.buscas__cartao-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--cor-texto-suave); }
+.buscas__cartao-criterios { color: var(--cor-texto-suave); }
+.buscas__cartao-corpo { padding: 4px 12px 12px; border-top: 1px solid var(--cor-borda); display: flex; flex-direction: column; gap: 10px; }
+
+.buscas__sugestao {
+  background: #fff8e1;
+  border: 1px solid #f1d98a;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.buscas__sucesso {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #e6f4ea;
+  color: #1b6b36;
+  font-size: 13px;
+}
+.buscas__erro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fdeaea;
+  color: var(--cor-primaria-escura);
+  font-size: 13px;
+}
+.buscas__erro-campo { color: var(--cor-primaria-escura); font-size: 12px; }
+.buscas__ajuda { margin: 0; font-size: 12px; color: var(--cor-texto-suave); }
+.buscas__link {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--cor-primaria-escura);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.buscas__linha { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.buscas__confirmacao { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.buscas__confirmacao input { margin-top: 3px; }
+.buscas__duplicidade {
+  border: 1px solid #f1d98a;
+  background: #fff8e1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.buscas__duplicidade ul { margin: 0; padding-left: 18px; }
+.buscas__botoes { flex-wrap: wrap; }
+
+.buscas__modelos { display: flex; flex-direction: column; gap: 8px; }
+.buscas__chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.buscas__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 999px;
+  background: var(--cor-fundo);
+  font-size: 13px;
+  color: var(--cor-texto);
+}
+.buscas__chip small { color: var(--cor-texto-suave); }
+.buscas__chip button { background: none; border: none; cursor: pointer; color: var(--cor-texto-suave); padding: 0 2px; }
+.buscas__resultados { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; border: 1px solid var(--cor-borda); border-radius: 8px; }
+.buscas__resultados li + li { border-top: 1px solid var(--cor-borda); }
+.buscas__resultados button {
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  background: #fff;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--cor-texto);
+}
+.buscas__resultados button:hover:not(:disabled) { background: var(--cor-fundo); }
+.buscas__resultados small { color: var(--cor-texto-suave); }
+.buscas__solicitacao {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px dashed var(--cor-borda);
+  border-radius: 8px;
+  background: #fff;
+}
+.buscas__historico { margin: 0; }
+
+.buscas-pagina__atualizar { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.buscas-pagina__resumo { margin-bottom: 14px; }
+.buscas-pagina__filtros { margin-bottom: 8px; }
+.buscas-pagina__filtros input[type="search"] {
+  padding: 8px 10px;
+  border: 1px solid var(--cor-borda);
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-family: inherit;
+  min-width: 260px;
+  max-width: 100%;
+}
+@media (max-width: 640px) {
+  .buscas__linha { grid-template-columns: 1fr; }
+  .buscas-pagina__filtros input[type="search"] { min-width: 0; width: 100%; }
+}
 </style>
 <script type="importmap">
 {

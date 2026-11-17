@@ -6,6 +6,7 @@ import { Dashboard } from "./pages/Dashboard.js";
 import { Pipeline } from "./pages/Pipeline.js";
 import { Relatorios } from "./pages/Relatorios.js";
 import { Conversas } from "./pages/Conversas.js";
+import { Buscas } from "./pages/Buscas.js";
 import { AppLayout } from "./layouts/AppLayout.js";
 function Root() {
     const { usuario } = useAuth();
@@ -33,6 +34,10 @@ function Root() {
                     setVista("pipeline");
                 } }), vista === "pipeline" && (_jsx(Pipeline, { oportunidadeInicialId: oportunidadeParaAbrirNoPipeline, aoConsumirOportunidadeInicial: () => setOportunidadeParaAbrirNoPipeline(null), abrirNovaNegociacaoInicial: abrirNovaNegociacaoNoPipeline, aoConsumirAbrirNovaNegociacaoInicial: () => setAbrirNovaNegociacaoNoPipeline(false) })), vista === "relatorios" && (_jsx(Relatorios, { onAbrirOportunidade: (oportunidadeId) => {
                     // Melhoria 7 (2026-10-07): mesma ponte do Dashboard/Conversas.
+                    setOportunidadeParaAbrirNoPipeline(oportunidadeId);
+                    setVista("pipeline");
+                } })), vista === "buscas" && (_jsx(Buscas, { onAbrirOportunidade: (oportunidadeId) => {
+                    // Melhoria 10 / Etapa 2B: mesma ponte do Dashboard/Relatórios.
                     setOportunidadeParaAbrirNoPipeline(oportunidadeId);
                     setVista("pipeline");
                 } })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
