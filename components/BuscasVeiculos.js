@@ -10,7 +10,8 @@ import {
   renovarBuscaVeiculo,
   reativarBuscaVeiculo,
   encerrarBuscaVeiculo,
-  solicitarModeloCatalogo
+  solicitarModeloCatalogo,
+  transferirBuscaVeiculo
 } from "../services/buscas.js";
 import {
   CAMBIOS,
@@ -37,7 +38,10 @@ import {
   rotuloSituacao,
   textoValidade,
   validarFormulario,
-  vencendoEmBreve
+  vencendoEmBreve,
+  podeTransferirBusca,
+  destinosDeTransferencia,
+  temVisaoGlobal
 } from "../utils/buscas.js";
 function SeloSituacao({ busca }) {
   const classe = busca.situacao === "ativa" ? vencendoEmBreve(busca) ? "alerta" : "ativa" : busca.situacao === "expirada" ? "vencida" : busca.situacao;
@@ -426,10 +430,11 @@ function DetalheBusca({ busca, cliente, responsavel, onAbrirOportunidade }) {
     onAbrirOportunidade && !busca.oportunidadeExcluida && /* @__PURE__ */ jsx("button", { type: "button", className: "buscas__link", onClick: () => onAbrirOportunidade(busca.oportunidadeId), children: "Abrir a negocia\xE7\xE3o de origem" })
   ] });
 }
-function AcoesBusca({ busca, onEditar, onAtualizada, onRecarregar }) {
+function AcoesBusca({ busca, usuarios, onEditar, onAtualizada, onRecarregar }) {
   const { idToken, usuario, logout } = useAuth();
   const [ocupado, setOcupado] = useState(null);
   const [dialogo, setDialogo] = useState(null);
+  const [destino, setDestino] = useState("");
   const [erro, setErro] = useState(null);
   const [aviso, setAviso] = useState(null);
   const [interesse, setInteresse] = useState(false);
@@ -479,9 +484,17 @@ function AcoesBusca({ busca, onEditar, onAtualizada, onRecarregar }) {
     }
     return executar("encerrar", (req) => encerrarBuscaVeiculo({ buscaId: busca.id, versaoEsperada: versaoRef.current, motivo, observacao: obs.trim(), requisicaoId: req }, idToken), "Busca encerrada.");
   };
+  const transferir = () => {
+    if (!destino) {
+      setErro({ tipo: "negocio", texto: "Escolha o novo respons\xE1vel." });
+      return;
+    }
+    return executar("transferir:" + destino, (req) => transferirBuscaVeiculo({ buscaId: busca.id, versaoEsperada: versaoRef.current, novoResponsavelId: destino, requisicaoId: req }, idToken), "Busca transferida.");
+  };
   function abrirDialogo(tipo) {
     setErro(null);
     setAviso(null);
+    setDestino("");
     setInteresse(false);
     setMotivo("");
     setObs("");
@@ -491,6 +504,9 @@ function AcoesBusca({ busca, onEditar, onAtualizada, onRecarregar }) {
     return /* @__PURE__ */ jsx("p", { className: "buscas__ajuda", children: "Voc\xEA pode consultar esta busca, mas n\xE3o alter\xE1-la (somente o vendedor respons\xE1vel, a Ger\xEAncia e a vis\xE3o global operacional)." });
   }
   const podeAlterarAtiva = situacao === "ativa" || situacao === "expirada";
+  const podeTransferir = podeTransferirBusca(usuario, busca, usuarios);
+  const destinos = destinosDeTransferencia(usuarios, busca);
+  const nomeAtual = (usuarios ?? []).find((u) => String(u.id) === String(busca.responsavelId))?.nome;
   return /* @__PURE__ */ jsxs("div", { className: "buscas__acoes", children: [
     aviso && /* @__PURE__ */ jsx("p", { className: "buscas__sucesso", role: "status", children: aviso }),
     /* @__PURE__ */ jsx(MensagemErroBusca, { erro: dialogo ? null : erro, onRecarregar, onEntrarNovamente: () => logout() }),
@@ -498,9 +514,40 @@ function AcoesBusca({ busca, onEditar, onAtualizada, onRecarregar }) {
       podeAlterarAtiva && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: onEditar, disabled: !!ocupado, children: "Editar" }),
       podeAlterarAtiva && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: renovar, disabled: !!ocupado, children: ocupado === "renovar" ? "Renovando\u2026" : "Renovar (30 dias)" }),
       podeAlterarAtiva && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-perigo", onClick: () => abrirDialogo("encerrar"), disabled: !!ocupado, children: "Encerrar" }),
-      situacao === "encerrada" && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: () => abrirDialogo("reativar"), disabled: !!ocupado, children: "Reativar" })
+      situacao === "encerrada" && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: () => abrirDialogo("reativar"), disabled: !!ocupado, children: "Reativar" }),
+      podeTransferir && /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => abrirDialogo("transferir"), disabled: !!ocupado, children: "Transferir" })
     ] }),
-    dialogo && /* @__PURE__ */ jsx("div", { className: "drop-motivo-overlay", onClick: () => !ocupado && setDialogo(null), children: /* @__PURE__ */ jsx("div", { className: "drop-motivo-modal", role: "dialog", "aria-modal": "true", onClick: (e) => e.stopPropagation(), children: dialogo === "encerrar" ? /* @__PURE__ */ jsxs(Fragment, { children: [
+    !podeTransferir && temVisaoGlobal(usuario) && /* @__PURE__ */ jsx("p", { className: "buscas__ajuda", children: "Transfer\xEAncia: Ger\xEAncia, respons\xE1vel pela busca ou, se o respons\xE1vel estiver inativo, a vis\xE3o global." }),
+    dialogo && /* @__PURE__ */ jsx("div", { className: "drop-motivo-overlay", onClick: () => !ocupado && setDialogo(null), children: /* @__PURE__ */ jsx("div", { className: "drop-motivo-modal", role: "dialog", "aria-modal": "true", onClick: (e) => e.stopPropagation(), children: dialogo === "transferir" ? /* @__PURE__ */ jsxs(Fragment, { children: [
+      /* @__PURE__ */ jsxs("h3", { children: [
+        "Transferir busca ",
+        busca.codigo,
+        "?"
+      ] }),
+      /* @__PURE__ */ jsx("p", { className: "side-panel__cliente", children: resumoModelos(busca) }),
+      /* @__PURE__ */ jsxs("div", { className: "side-panel__form", children: [
+        /* @__PURE__ */ jsxs("p", { className: "buscas__ajuda", children: [
+          "Respons\xE1vel atual: ",
+          nomeAtual ?? "\u2014 (sem respons\xE1vel ativo)",
+          ". Os pr\xF3ximos avisos desta busca seguir\xE3o o novo respons\xE1vel; o hist\xF3rico e a Timeline registram a mudan\xE7a."
+        ] }),
+        /* @__PURE__ */ jsxs("label", { className: "side-panel__campo", children: [
+          /* @__PURE__ */ jsx("span", { children: "Novo respons\xE1vel *" }),
+          /* @__PURE__ */ jsxs("select", { value: destino, onChange: (e) => {
+            setDestino(e.target.value);
+            setErro(null);
+          }, disabled: !!ocupado, autoFocus: true, children: [
+            /* @__PURE__ */ jsx("option", { value: "", children: "Selecione o novo respons\xE1vel\u2026" }),
+            destinos.map((u) => /* @__PURE__ */ jsx("option", { value: u.id, children: u.nome }, u.id))
+          ] })
+        ] }),
+        /* @__PURE__ */ jsx(MensagemErroBusca, { erro, onRecarregar, onEntrarNovamente: () => logout() }),
+        /* @__PURE__ */ jsxs("div", { className: "side-panel__form-acoes", children: [
+          /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-primario", onClick: transferir, disabled: !!ocupado, children: ocupado ? "Transferindo\u2026" : "Transferir busca" }),
+          /* @__PURE__ */ jsx("button", { type: "button", className: "side-panel__botao-secundario", onClick: () => setDialogo(null), disabled: !!ocupado, children: "Cancelar" })
+        ] })
+      ] })
+    ] }) : dialogo === "encerrar" ? /* @__PURE__ */ jsxs(Fragment, { children: [
       /* @__PURE__ */ jsxs("h3", { children: [
         "Encerrar busca ",
         busca.codigo,
@@ -559,7 +606,7 @@ function AcoesBusca({ busca, onEditar, onAtualizada, onRecarregar }) {
     ] }) }) })
   ] });
 }
-function CartaoBusca({ busca, cliente, responsavel, onAtualizada, onRecarregar, onAbrirOportunidade, iniciarAberto }) {
+function CartaoBusca({ busca, usuarios, cliente, responsavel, onAtualizada, onRecarregar, onAbrirOportunidade, iniciarAberto }) {
   const [aberto, setAberto] = useState(!!iniciarAberto);
   const [editando, setEditando] = useState(false);
   const [mostrarHistorico, setMostrarHistorico] = useState(false);
@@ -592,7 +639,7 @@ function CartaoBusca({ busca, cliente, responsavel, onAtualizada, onRecarregar, 
       }
     ) : /* @__PURE__ */ jsxs(Fragment, { children: [
       /* @__PURE__ */ jsx(DetalheBusca, { busca, cliente, responsavel, onAbrirOportunidade }),
-      /* @__PURE__ */ jsx(AcoesBusca, { busca, onEditar: () => setEditando(true), onAtualizada, onRecarregar }),
+      /* @__PURE__ */ jsx(AcoesBusca, { busca, usuarios, onEditar: () => setEditando(true), onAtualizada, onRecarregar }),
       /* @__PURE__ */ jsx("button", { type: "button", className: "buscas__link", onClick: () => setMostrarHistorico((v) => !v), children: mostrarHistorico ? "Ocultar hist\xF3rico" : "Ver hist\xF3rico" }),
       mostrarHistorico && /* @__PURE__ */ jsx(HistoricoBusca, { buscaId: busca.id, versao: busca.versao })
     ] }) })
@@ -642,6 +689,7 @@ function BuscasDaOportunidade({ oportunidade, cliente, responsavel, usuarios, mo
       CartaoBusca,
       {
         busca: b,
+        usuarios,
         cliente,
         responsavel: usuariosPorId.get(String(b.responsavelId)),
         onAtualizada: aoAtualizada,
