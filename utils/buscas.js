@@ -127,6 +127,26 @@ export function podeOperarBusca(usuario, busca) {
   if (temVisaoGlobal(usuario)) return true;
   return busca.responsavelId !== "" && String(busca.responsavelId) === String(usuario.id);
 }
+// Transferir busca (mesma matriz da v35, classe "transferencia"): Gerência
+// sempre; responsável atual; visão global somente quando o responsável atual
+// está inativo ou não existe mais. O backend é quem decide de verdade.
+export function podeTransferirBusca(usuario, busca, usuarios) {
+  if (!usuario || !busca || busca.oportunidadeExcluida) return false;
+  if (ehGerencia(usuario)) return true;
+  if (busca.responsavelId !== "" && String(busca.responsavelId) === String(usuario.id)) return true;
+  if (temVisaoGlobal(usuario)) {
+    const dono = (usuarios ?? []).find((u) => String(u.id) === String(busca.responsavelId));
+    return !dono || dono.ativo === false;
+  }
+  return false;
+}
+// Destinos possíveis: usuários ativos, exceto o responsável atual.
+export function destinosDeTransferencia(usuarios, busca) {
+  return (usuarios ?? [])
+    .filter((u) => u.ativo !== false && String(u.id) !== String(busca?.responsavelId))
+    .sort((a, b) => String(a.nome).localeCompare(String(b.nome), "pt-BR"));
+}
+
 export function podeRegistrarBusca(usuario, oportunidade) {
   if (!usuario || !oportunidade) return false;
   if (temVisaoGlobal(usuario)) return true;
