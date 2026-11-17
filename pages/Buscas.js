@@ -164,6 +164,7 @@ function Buscas({ onAbrirOportunidade }) {
         CartaoBusca,
         {
           busca: selecionada,
+          usuarios,
           iniciarAberto: true,
           cliente: clientesPorId.get(selecionada.clienteId),
           responsavel: usuariosPorId.get(selecionada.responsavelId),
