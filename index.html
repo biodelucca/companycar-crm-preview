@@ -2386,6 +2386,81 @@ button {
   .buscas__linha { grid-template-columns: 1fr; }
   .buscas-pagina__filtros input[type="search"] { min-width: 0; width: 100%; }
 }
+/* ---------- Melhoria 10 / Central de Recuperação — Etapa C1 (somente leitura) ---------- */
+.recup__lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.recup__demanda {
+  background: #fff;
+  border: 1px solid var(--cor-borda);
+  border-left: 4px solid var(--cor-borda);
+  border-radius: 12px;
+  box-shadow: var(--sombra-card);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.recup__demanda[data-sem-acompanhamento="sim"] { border-left-color: var(--cor-primaria); }
+.recup__demanda[data-sem-acompanhamento="nao"][data-novas]:not([data-novas="0"]) { border-left-color: #1f4fa8; }
+.recup__topo { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.recup__titulo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; min-width: 0; }
+.recup__abrir { font-size: 15px; font-weight: 600; text-align: left; }
+.recup__codigo { color: var(--cor-texto-suave); font-size: 12.5px; }
+.recup__selos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.recup__selo {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.recup__selo--sem-acomp { background: #fdeaea; color: var(--cor-primaria-escura); }
+.recup__selo--nova { background: #e7effd; color: #1f4fa8; margin-left: 6px; }
+.recup__selos .recup__selo--nova { margin-left: 0; }
+.recup__selo--disp { background: #e6f4ea; color: #1b6b36; }
+.recup__selo--indisp { background: #ececef; color: #55555b; }
+.recup__procura, .recup__meta { margin: 0; font-size: 13.5px; }
+.recup__meta { color: var(--cor-texto-suave); }
+.recup__procura small { color: var(--cor-texto-suave); font-size: 12.5px; }
+.recup__veiculos { list-style: none; margin: 0; padding: 0; border: 1px solid var(--cor-borda); border-radius: 8px; overflow: hidden; }
+.recup__veiculo {
+  display: grid;
+  grid-template-columns: minmax(180px, 2.2fr) 0.9fr 0.9fr 0.9fr 1fr 1.2fr 0.9fr;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+.recup__veiculo + .recup__veiculo { border-top: 1px solid var(--cor-borda); }
+.recup__veiculo--indisponivel { background: var(--cor-fundo); color: var(--cor-texto-suave); }
+.recup__veiculo-nome { font-weight: 600; overflow-wrap: anywhere; }
+.recup__preco { font-weight: 600; }
+.recup__rodape { display: flex; justify-content: flex-end; }
+.recup__vazio { padding: 24px 12px; text-align: center; }
+.recup__painel-corpo { display: flex; flex-direction: column; gap: 16px; }
+.recup__secao h3 { margin: 0 0 6px; font-size: 14px; }
+.recup__secao p { margin: 4px 0; font-size: 13.5px; }
+.recup__aviso { background: #fdeaea; color: var(--cor-primaria-escura); border-radius: 8px; padding: 8px 10px; }
+.recup__aviso--nova { background: #e7effd; color: #1f4fa8; }
+.recup__detalhe-veiculos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.recup__detalhe-veiculos li { display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--cor-borda); border-radius: 8px; padding: 8px 10px; font-size: 13px; }
+.recup__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 900px) {
+  .recup__veiculo { grid-template-columns: 1fr 1fr; }
+  .recup__veiculo-nome { grid-column: 1 / -1; }
+  .recup__veiculo > span[data-rotulo]:not(.recup__veiculo-nome)::before {
+    content: attr(data-rotulo);
+    display: block;
+    font-size: 11px;
+    color: var(--cor-texto-suave);
+    font-weight: 400;
+  }
+}
+@media (max-width: 640px) {
+  .recup__demanda { padding: 10px 12px; }
+  .recup__rodape .side-panel__botao-secundario { width: 100%; }
+  .recup__acoes .side-panel__botao-secundario { width: 100%; }
+}
 </style>
 <script type="importmap">
 {

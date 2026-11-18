@@ -7,6 +7,7 @@ import { Pipeline } from "./pages/Pipeline.js";
 import { Relatorios } from "./pages/Relatorios.js";
 import { Conversas } from "./pages/Conversas.js";
 import { Buscas } from "./pages/Buscas.js";
+import { Recuperacao } from "./pages/Recuperacao.js";
 import { AppLayout } from "./layouts/AppLayout.js";
 function Root() {
     const { usuario } = useAuth();
@@ -38,6 +39,10 @@ function Root() {
                     setVista("pipeline");
                 } })), vista === "buscas" && (_jsx(Buscas, { onAbrirOportunidade: (oportunidadeId) => {
                     // Melhoria 10 / Etapa 2B: mesma ponte do Dashboard/Relatórios.
+                    setOportunidadeParaAbrirNoPipeline(oportunidadeId);
+                    setVista("pipeline");
+                } })), vista === "recuperacao" && (_jsx(Recuperacao, { onAbrirOportunidade: (oportunidadeId) => {
+                    // Melhoria 10 / Central de Recuperação C1: só navega até a oportunidade (mesma ponte de Buscas).
                     setOportunidadeParaAbrirNoPipeline(oportunidadeId);
                     setVista("pipeline");
                 } })), vista === "conversas" && usuario?.papel === "Gerente (Owner)" && (_jsx(Conversas, { onAbrirNoPipeline: (oportunidadeId) => {
