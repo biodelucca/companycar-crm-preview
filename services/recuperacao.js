@@ -1,9 +1,13 @@
 import { apiClient } from "./apiClient.js";
 import { mapBusca } from "./buscas.js";
+import { gerarRequisicaoId } from "../utils/buscas.js";
 
-// Melhoria 10 / Central de Recuperação — Etapa C1 (SOMENTE LEITURA).
-// Único lugar que fala com a rota GET listCentralRecuperacao. Não há nenhuma
-// função de escrita neste arquivo (a C2 é uma etapa à parte, ainda não autorizada).
+// Melhoria 10 / Central de Recuperação — C1 (leitura) + C2 (registro rápido de contato).
+// Único lugar que fala com a rota GET listCentralRecuperacao e com a rota POST
+// registrarContatoRecuperacao (a única escrita da Central). O backend autoriza,
+// valida, controla versão e garante idempotência por requisicaoId: um reenvio
+// nunca duplica o contato. Encerrar busca, quando sugerido, usa a rota que já
+// existia (services/buscas.js) e só por ação humana.
 
 function texto(v) {
   return v === null || v === undefined ? "" : String(v);
@@ -31,11 +35,29 @@ export function mapVeiculoRecuperacao(raw) {
     nova: raw.nova === true,
   };
 }
+export function mapContatoRecuperacao(raw) {
+  return {
+    id: texto(raw.id),
+    dataHora: texto(raw.data_hora),
+    usuarioId: texto(raw.usuario_id),
+    usuarioNome: texto(raw.usuario_nome),
+    canal: texto(raw.canal),
+    resultado: texto(raw.resultado),
+    proximoPasso: texto(raw.proximo_passo),
+    dataProximoContato: texto(raw.data_proximo_contato),
+    veiculos: (raw.veiculos ?? []).map((v) => ({ veiculoId: texto(v.veiculo_id), descricao: texto(v.descricao) })),
+    observacao: texto(raw.observacao),
+    registradoPorTerceiro: raw.registrado_por_terceiro === true,
+  };
+}
 export function mapDemandaRecuperacao(raw) {
   const r = raw.resumo ?? {};
+  const perm = raw.permissoes ?? {};
   return {
     busca: mapBusca(raw.busca ?? {}),
     veiculos: (raw.veiculos ?? []).map(mapVeiculoRecuperacao),
+    contatos: (raw.contatos ?? []).map(mapContatoRecuperacao),
+    permissoes: { registrarContato: perm.registrar_contato === true, encerrarBusca: perm.encerrar_busca === true },
     resumo: {
       total: Number(r.total || 0),
       disponiveis: Number(r.disponiveis || 0),
@@ -46,6 +68,12 @@ export function mapDemandaRecuperacao(raw) {
       ultimaAtividadeHumanaEm: texto(r.ultima_atividade_humana_em),
       semAcompanhamento: r.sem_acompanhamento === true,
       horasSemAcompanhamento: r.horas_sem_acompanhamento === null || r.horas_sem_acompanhamento === undefined ? null : Number(r.horas_sem_acompanhamento),
+      contatosTotal: Number(r.contatos_total || 0),
+      ultimoContatoEm: texto(r.ultimo_contato_em),
+      proximoContatoData: texto(r.proximo_contato_data),
+      retornoVencido: r.retorno_vencido === true,
+      sugerirEncerramento: r.sugerir_encerramento === true,
+      alertaSemInteresse: r.alerta_sem_interesse === true,
     },
   };
 }
@@ -59,5 +87,20 @@ export async function listCentralRecuperacao(idToken) {
     horasNova: Number(raw?.horas_nova || 24),
     horasSemAcompanhamento: Number(raw?.horas_sem_acompanhamento || 24),
     demandas: (raw?.demandas ?? []).map(mapDemandaRecuperacao),
+  };
+}
+
+// Registro rápido de contato. O chamador gera UM requisicaoId por formulário aberto e o
+// reutiliza ao repetir um envio que falhou por rede (o backend devolve o mesmo contato).
+export async function registrarContatoRecuperacao(dados, idToken) {
+  const raw = await apiClient.request({
+    action: "registrarContatoRecuperacao",
+    body: { ...dados, requisicaoId: dados.requisicaoId ?? gerarRequisicaoId() },
+    idToken: idToken ?? undefined,
+  });
+  return {
+    contato: raw?.contato ? mapContatoRecuperacao(raw.contato) : null,
+    reaproveitada: raw?.reaproveitada === true,
+    timelineOk: raw?.timeline_ok !== false,
   };
 }
