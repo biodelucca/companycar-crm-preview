@@ -2461,6 +2461,51 @@ button {
   .recup__rodape .side-panel__botao-secundario { width: 100%; }
   .recup__acoes .side-panel__botao-secundario { width: 100%; }
 }
+/* Melhoria 10 / C2 — registro rápido de contato (mobile-first; alvos de toque >= 44px) */
+.recup__resumo { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.recup__selo--sem-interesse { background: #fff1d6; color: #7a4a00; }
+.recup__selo--sugestao { background: #f3eefb; color: #5b3a96; }
+.recup__selo--retorno { background: #fdeaea; color: var(--cor-primaria-escura); }
+.recup__selo--terceiro { background: #ececef; color: #3b3b42; margin-left: 6px; }
+.recup__demanda[data-pendente="sim"] { border-left-color: #c77d00; }
+.recup__contato { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.recup__contato--vazio { color: var(--cor-texto-suave); }
+.recup__rodape { gap: 8px; flex-wrap: wrap; }
+.recup__rodape .side-panel__botao-primario, .recup__rodape .side-panel__botao-secundario { min-height: 44px; }
+.recup__aviso--retorno { background: #fdeaea; color: var(--cor-primaria-escura); }
+.recup__aviso--semint { background: #fff1d6; color: #7a4a00; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.recup__aviso--semint p { margin: 0; }
+.recup__encerrar { border: 1px solid var(--cor-borda); border-radius: 8px; padding: 10px; display: flex; flex-direction: column; gap: 10px; background: #fff; }
+.recup__encerrar p { margin: 0; font-size: 13.5px; }
+.recup__historico { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.recup__historico-item { display: flex; flex-direction: column; gap: 3px; border: 1px solid var(--cor-borda); border-radius: 8px; padding: 8px 10px; font-size: 13px; overflow-wrap: anywhere; }
+.recup__historico-obs { font-style: italic; color: var(--cor-texto-suave); }
+.recup__form { width: min(480px, 100%); }
+.recup__form-corpo { display: flex; flex-direction: column; gap: 14px; padding-bottom: 12px; }
+.recup__form-rodape { display: flex; gap: 8px; justify-content: flex-end; padding: 10px 16px; border-top: 1px solid var(--cor-borda); background: #fff; }
+.recup__form-rodape button { min-height: 44px; }
+.recup__campo { display: flex; flex-direction: column; gap: 6px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.recup__campo-rotulo { font-size: 13px; font-weight: 600; padding: 0; }
+.recup__campo input[type="date"], .recup__campo textarea, .recup__campo select { font: inherit; font-size: 16px; min-height: 44px; padding: 8px 10px; border: 1px solid var(--cor-borda); border-radius: 8px; width: 100%; box-sizing: border-box; background: #fff; }
+.recup__campo textarea { min-height: 72px; resize: vertical; }
+.recup__opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.recup__opcao { min-height: 44px; padding: 8px 14px; border: 1px solid var(--cor-borda); border-radius: 22px; background: #fff; font: inherit; font-size: 14px; cursor: pointer; }
+.recup__opcao--ativa { background: var(--cor-primaria); border-color: var(--cor-primaria); color: #fff; font-weight: 600; }
+.recup__opcao:disabled { opacity: 0.6; cursor: default; }
+.recup__form-veiculos { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.recup__check { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--cor-borda); border-radius: 8px; font-size: 13.5px; cursor: pointer; overflow-wrap: anywhere; }
+.recup__check input { width: 20px; height: 20px; flex: none; }
+.recup__check--ativo { border-color: var(--cor-primaria); background: #fdf3f3; }
+.recup__check small { color: var(--cor-texto-suave); display: block; }
+.recup__info { margin: 0; padding: 8px 10px; background: var(--cor-fundo); border-radius: 8px; font-size: 13px; }
+.recup__aviso-sucesso { margin: 0 0 8px; }
+@media (max-width: 640px) {
+  .recup__form { width: 100%; }
+  .recup__form-rodape { position: sticky; bottom: 0; }
+  .recup__form-rodape button { flex: 1; }
+  .recup__rodape .side-panel__botao-primario, .recup__rodape .side-panel__botao-secundario { flex: 1 1 100%; width: 100%; }
+  .recup__aviso--semint .side-panel__botao-perigo { width: 100%; min-height: 44px; }
+}
 </style>
 <script type="importmap">
 {
